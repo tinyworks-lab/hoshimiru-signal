@@ -18,19 +18,23 @@ function loadGtagScript(measurementId: string): void {
   if (isScriptLoaded) return;
   isScriptLoaded = true;
 
-  window.dataLayer = window.dataLayer || [];
-  window.gtag = function gtag(...args: unknown[]) {
-    window.dataLayer.push(args);
-  };
-
-  window.gtag('js', new Date());
-  // 個人を特定する情報(uid・signalId・氏名・メール・位置情報など)は一切渡さない。
-  window.gtag('config', measurementId);
-
+  // GA4公式のgtag.jsスニペットとまったく同じ初期化手順。
   const script = document.createElement('script');
   script.async = true;
   script.src = `https://www.googletagmanager.com/gtag/js?id=${measurementId}`;
   document.head.appendChild(script);
+
+  window.dataLayer = window.dataLayer || [];
+  // 標準スニペットどおり arguments オブジェクトをそのまま push する。
+  // 配列に展開して push すると gtag.js がコマンドとして認識せず、collectが発生しない。
+  window.gtag = function gtag() {
+    window.dataLayer.push(arguments);
+  };
+
+  window.gtag('js', new Date());
+  // 個人を特定する情報(uid・signalId・氏名・メール・位置情報など)は一切渡さない。
+  // config実行時にpage_viewが自動送信される(send_page_viewのデフォルトはtrue)。
+  window.gtag('config', measurementId);
 }
 
 /** ページ読み込み時に一度だけ呼ぶ。測定IDが未設定なら何もしない(エラーにもならない)。 */
