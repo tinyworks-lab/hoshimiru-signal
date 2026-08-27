@@ -2,6 +2,11 @@ import { signInAnonymously } from 'firebase/auth';
 import { get, onChildAdded, onDisconnect, onValue, push, ref, remove, serverTimestamp, set } from 'firebase/database';
 import { auth, db } from './firebase';
 
+// presenceに参加している間、この間隔で自分の接続のlastSeenをサーバー時刻に更新する。
+const HEARTBEAT_INTERVAL_MS = 30000;
+// lastSeenがサーバー現在時刻からこれ以上古い接続は「異常に残ったゴースト」とみなし、人数から除外する。
+const PRESENCE_INACTIVE_MS = 90000;
+
 export interface PresenceCallbacks {
   /** 自分以外でpresenceに存在するuidの数が変化するたびに呼ばれる */
   onCountChange: (count: number) => void;
@@ -39,11 +44,34 @@ export async function watchHoshimiruSignal(
   const credential = await signInAnonymously(auth);
   const myUid = credential.user.uid;
 
+  // 端末の時計に依存せずサーバー現在時刻を推定するためのオフセット（サーバー時刻 = Date.now() + offset）。
+  let serverTimeOffset = 0;
+  onValue(ref(db, '.info/serverTimeOffset'), (snapshot) => {
+    const value = snapshot.val();
+    if (typeof value === 'number') serverTimeOffset = value;
+  });
+  const serverNow = (): number => Date.now() + serverTimeOffset;
+
+  // 1つの接続がまだアクティブか（lastSeenがサーバー現在時刻から90秒以内か）を判定する。
+  // 旧形式（値がtrueのみでlastSeenを持たない接続）はlastSeen不明のためinactive扱いにする。
+  function isConnectionActive(connectionValue: unknown): boolean {
+    if (!connectionValue || typeof connectionValue !== 'object') return false;
+    const lastSeen = (connectionValue as { lastSeen?: unknown }).lastSeen;
+    if (typeof lastSeen !== 'number') return false;
+    return serverNow() - lastSeen < PRESENCE_INACTIVE_MS;
+  }
+
   // --- presence: 「今このページで空を見ている人」の現在人数だけを把握する ---
   const presenceRef = ref(db, 'presence');
   onValue(presenceRef, (snapshot) => {
-    const raw = (snapshot.val() ?? {}) as Record<string, unknown>;
-    const count = Object.keys(raw).filter((uid) => uid !== myUid).length;
+    const raw = (snapshot.val() ?? {}) as Record<string, Record<string, unknown> | null>;
+    let count = 0;
+    for (const [uid, connections] of Object.entries(raw)) {
+      if (uid === myUid) continue; // 自分自身は受信人数から除外
+      if (!connections || typeof connections !== 'object') continue;
+      // 同一uid配下に90秒以内の接続が1つでもあれば1人。すべて古ければ数えない（複数タブは1人のまま）。
+      if (Object.values(connections).some(isConnectionActive)) count += 1;
+    }
     presenceCallbacks.onCountChange(count);
   });
 
@@ -78,6 +106,25 @@ export async function watchHoshimiruSignal(
     });
 
   let hasJoinedPresence = false;
+  let myConnectionRef: ReturnType<typeof push> | null = null;
+  let heartbeatTimer: number | undefined;
+
+  // 自分のuid配下だけを走査し、今の接続以外で古くなった（またはlastSeenを持たない）
+  // ゴースト接続を削除する。他人のuid配下には一切触れない（Security Rules上も書けない）。
+  function cleanupMyStaleConnections(currentKey: string | null): void {
+    get(ref(db, `presence/${myUid}`))
+      .then((snapshot) => {
+        snapshot.forEach((child) => {
+          if (child.key && child.key !== currentKey && !isConnectionActive(child.val())) {
+            remove(child.ref);
+          }
+          return false;
+        });
+      })
+      .catch((error) => {
+        console.error(error);
+      });
+  }
 
   function join(): boolean {
     if (hasJoinedPresence) return false;
@@ -89,14 +136,27 @@ export async function watchHoshimiruSignal(
     onValue(connectedRef, (snapshot) => {
       if (snapshot.val() !== true) return;
 
-      const myConnectionRef = push(ref(db, `presence/${myUid}`));
+      const connectionRef = push(ref(db, `presence/${myUid}`));
+      myConnectionRef = connectionRef;
       // 切断（タブを閉じる・リロード・回線切断など）を検知したらサーバー側が自動的に削除する。
-      onDisconnect(myConnectionRef)
+      onDisconnect(connectionRef)
         .remove()
         .then(() => {
-          set(myConnectionRef, true);
+          // 値は {lastSeen: サーバー時刻}。端末の時計には依存しない。
+          set(connectionRef, { lastSeen: serverTimestamp() });
+          cleanupMyStaleConnections(connectionRef.key);
         });
     });
+
+    // heartbeat: 参加中は一定間隔でlastSeenをサーバー時刻へ更新し続ける。
+    // onDisconnectで消えなかったゴーストは、更新が止まって90秒経てば人数から外れる。
+    if (heartbeatTimer === undefined) {
+      heartbeatTimer = window.setInterval(() => {
+        if (myConnectionRef) {
+          set(myConnectionRef, { lastSeen: serverTimestamp() }).catch(() => {});
+        }
+      }, HEARTBEAT_INTERVAL_MS);
+    }
 
     return true;
   }

@@ -204,14 +204,32 @@ body {
   color: #7d8bb3;
   font-size: 0.9rem;
   line-height: 1.8;
+  /* テキスト切り替え時のクロスフェード（戻り＝フェードイン側）。レイアウトには影響しない。 */
+  transition: opacity 0.25s ease;
+}
+
+/*
+  文字列を更新する直前だけ付くクラス。先にここまでopacityを下げ、
+  見えない状態になってからJS側が文字列を差し替える（1フレーム古い体裁が残るのを防ぐ）。
+*/
+.count.is-swapping {
+  opacity: 0;
+  transition-duration: 0.15s;
+}
+
+/* テキスト本体。1行/2行/受信演出のどの文言でも親(.count)の高さ3.6remは変化しない。 */
+.count-text {
+  display: block;
+  text-align: center;
 }
 
 /*
   「ホシミル信号　N人受信」のときだけ付くクラス。今この瞬間のリアルタイムな信号であることを
   示すための、呼吸のようなごくゆっくりした明滅。色は変えずopacityだけを 0.65↔1.0 で往復する。
   完全には消さない。0人表示と受信演出中(is-live無し)には適用しない。
+  クロスフェードは親(.count)のopacityで行うため、呼吸用opacityと競合しない。
 */
-.count.is-live {
+.count-text.is-live {
   animation: count-breathe 5s ease-in-out infinite;
 }
 
@@ -226,8 +244,13 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .count.is-live {
+  .count-text.is-live {
     animation: none;
+  }
+  /* 長いクロスフェードは行わず、ごく短いopacity切り替えにとどめる。 */
+  .count,
+  .count.is-swapping {
+    transition-duration: 0.08s;
   }
 }
 

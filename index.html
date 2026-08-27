@@ -45,7 +45,12 @@
         </svg>
       </div>
 
-      <p id="count-display" class="count"></p>
+      <!--
+        .count(親)はレイアウト固定＋テキスト切り替え用のクロスフェードを担当し、
+        .count-text(内側span)は「N人受信」時の呼吸アニメーションを担当する。
+        切り替え用opacityと呼吸用opacityを別要素に分けることで両者が競合しない。
+      -->
+      <p id="count-display" class="count"><span id="count-text" class="count-text"></span></p>
 
       <div id="footer-note" class="footer-note">
         <p class="footer-line">イヤホンをつけて、信号を待つ。</p>

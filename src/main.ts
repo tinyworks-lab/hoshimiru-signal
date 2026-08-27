@@ -9,6 +9,7 @@ const button = document.getElementById('signal-button') as HTMLButtonElement;
 const lineEl = document.getElementById('signal-line') as unknown as SVGPathElement;
 const glowEl = document.getElementById('signal-glow') as unknown as SVGCircleElement;
 const countEl = document.getElementById('count-display') as HTMLParagraphElement;
+const countTextEl = document.getElementById('count-text') as HTMLSpanElement;
 const particleEl = document.getElementById('launch-particle') as HTMLDivElement;
 const muteButton = document.getElementById('mute-button') as HTMLButtonElement;
 const privacyLink = document.getElementById('privacy-link') as HTMLButtonElement;
@@ -29,6 +30,27 @@ const LINE_LEFT = 6;
 const LINE_RIGHT = 214;
 const LINE_Y = 20;
 const RESEND_INTERVAL_MS = 499000; // 8分19秒
+// 最後にホシミル信号を送った時刻(Date.now()のミリ秒)。リロードで再送制限をリセットさせないために使う。
+const LAST_SIGNAL_AT_KEY = 'hoshimiru_last_signal_at';
+
+function readLastSignalAt(): number | null {
+  try {
+    const raw = localStorage.getItem(LAST_SIGNAL_AT_KEY);
+    if (raw === null) return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLastSignalAt(timestamp: number): void {
+  try {
+    localStorage.setItem(LAST_SIGNAL_AT_KEY, String(timestamp));
+  } catch {
+    // localStorageが使えない環境では、従来どおりsetTimeoutのみで再送制限を行う。
+  }
+}
 
 let latestCount = 0;
 let hasSentSignal = false;
@@ -79,18 +101,65 @@ function smoothstep(t: number): number {
   return clamped * clamped * (3 - 2 * clamped);
 }
 
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+// 文字列を差し替える前に、.count-swapping で opacity を下げ切るまで待つ時間。
+// CSSのフェードアウト(通常0.15s / reduced 0.08s)より少しだけ長くとる。
+const COUNT_FADE_OUT_MS = prefersReducedMotion ? 90 : 170;
+
+let countSwapTimer: number | undefined;
+// 現在.count-textに表示している文字列(HTML)。同じ内容での無駄な再フェードを防ぐ。
+let currentCountHtml = '';
+
+/**
+ * 人数表示のテキストを、親(.count)のopacityによるクロスフェードで切り替える。
+ * フェードアウト → 見えない状態で文字列と呼吸クラスを更新 → フェードイン、の順。
+ * 文字列が変わる瞬間がユーザーから見えないようにして、1フレームだけ古い体裁が残る現象を防ぐ。
+ */
+function setCountDisplay(html: string, live: boolean): void {
+  if (html === currentCountHtml) {
+    // 文字列は同じで呼吸の有無だけ変わる場合。
+    countTextEl.classList.toggle('is-live', live);
+    return;
+  }
+
+  const isInitial = currentCountHtml === '';
+  currentCountHtml = html;
+
+  if (countSwapTimer !== undefined) {
+    window.clearTimeout(countSwapTimer);
+    countSwapTimer = undefined;
+  }
+
+  if (isInitial) {
+    // 初回表示はフェードなしで即時に出す（空文字からの切り替えを見せる必要はない）。
+    countTextEl.innerHTML = html;
+    countTextEl.classList.toggle('is-live', live);
+    return;
+  }
+
+  // 1. 現在の表示をフェードアウト
+  countEl.classList.add('is-swapping');
+  countSwapTimer = window.setTimeout(() => {
+    countSwapTimer = undefined;
+    // 2. 見えない状態で文字列と呼吸アニメーションを更新
+    countTextEl.innerHTML = html;
+    countTextEl.classList.toggle('is-live', live);
+    // 3. フェードイン
+    countEl.classList.remove('is-swapping');
+  }, COUNT_FADE_OUT_MS);
+}
+
 function applyCountText(count: number): void {
   if (count === 0) {
     // 自分がまだ送っていない0人と、送信済みで本当に自分だけ(独り占め)の0人を区別する。
-    countEl.innerHTML = hasSentSignal
+    const html = hasSentSignal
       ? 'ホシミル信号ハアリマセン<br />夜空ヲ独リ占メシテイマス'
       : 'ホシミル信号ハアリマセン';
     // 0人表示はリアルタイムな人数ではないため、呼吸アニメーションは付けない。
-    countEl.classList.remove('is-live');
+    setCountDisplay(html, false);
   } else {
-    countEl.textContent = `ホシミル信号　${count}人受信`;
     // N人受信のときだけ、ゆっくりした呼吸アニメーションを有効にする。
-    countEl.classList.add('is-live');
+    setCountDisplay(`ホシミル信号　${count}人受信`, true);
   }
 }
 
@@ -162,15 +231,15 @@ function animateReceivedWave(onComplete: () => void): void {
 }
 
 function flashNewSignal(): void {
-  countEl.textContent = 'ホシミル信号ヲ受信';
-  // 受信演出中は呼吸アニメーションを一時停止する。演出終了後にapplyCountTextで再開される。
-  countEl.classList.remove('is-live');
+  // 「ホシミル信号ヲ受信」への切り替えもクロスフェードで行う。呼吸(is-live)はfalseで外れる。
+  setCountDisplay('ホシミル信号ヲ受信', false);
   isReceiving = true;
   lineEl.classList.add('is-pulsing'); // 受信の瞬間、線全体をすっと明るくする
 
   animateReceivedWave(() => {
     isReceiving = false;
     lineEl.classList.remove('is-pulsing'); // 約1秒かけて通常の淡さへ戻る(CSS側のtransitionで実現)
+    // 「ホシミル信号ヲ受信」→「ホシミル信号　N人受信」へも同じクロスフェードで戻す。
     applyCountText(latestCount);
   });
 }
@@ -268,7 +337,7 @@ function triggerLaunchParticle(origin: { x: number; y: number }): void {
 
 // 最初の送信から499秒(8分19秒)後に、同じ領域で「モウイチド信号ヲ送ル」ボタンへ切り替える。
 // presenceへの再参加は行わない。「送れるかどうか」は受信の可否とは完全に独立している。
-function scheduleResend(): void {
+function scheduleResend(delayMs: number = RESEND_INTERVAL_MS): void {
   if (resendTimer !== undefined) {
     window.clearTimeout(resendTimer);
   }
@@ -277,7 +346,35 @@ function scheduleResend(): void {
     button.textContent = 'モウイチド信号ヲ送ル';
     button.disabled = false;
     appEl.dataset.state = 'idle';
-  }, RESEND_INTERVAL_MS);
+  }, Math.max(delayMs, 0));
+}
+
+// ページ読み込み時に、localStorageの最終送信時刻から送信可能状態を復元する。
+// 戻り値のneedsPresenceRejoinがtrueなら、そのユーザーはまだ空を見ている扱いとして
+// presenceへ再参加させる（新しい/signalsイベントは送らない）。
+function restoreSignalState(): { needsPresenceRejoin: boolean } {
+  const lastSignalAt = readLastSignalAt();
+  if (lastSignalAt === null) {
+    // 最終送信記録なし。通常どおり「信号ヲ送ル」を表示する。
+    return { needsPresenceRejoin: false };
+  }
+
+  const elapsed = Date.now() - lastSignalAt;
+
+  if (elapsed >= RESEND_INTERVAL_MS) {
+    // 499000ms以上経過。「モウイチド信号ヲ送ル」を表示する。
+    button.textContent = 'モウイチド信号ヲ送ル';
+    appEl.dataset.state = 'idle';
+    return { needsPresenceRejoin: false };
+  }
+
+  // 499000ms未満。ボタンは出さず「誰カノ信号ヲ待ッテイマス」を表示し、残り時間だけ待つ。
+  hasSentSignal = true;
+  button.disabled = true;
+  appEl.dataset.state = 'waiting';
+  const remainingMs = Math.min(RESEND_INTERVAL_MS - elapsed, RESEND_INTERVAL_MS);
+  scheduleResend(remainingMs);
+  return { needsPresenceRejoin: true };
 }
 
 button.addEventListener('pointerdown', (event) => {
@@ -304,6 +401,8 @@ button.addEventListener('click', () => {
 
   // 3. 新しいホシミル信号イベントを/signalsへ書き込む(初回・再送どちらでも毎回)
   watcher.sendSignal();
+  // 信号送信が実行された瞬間に、最終送信時刻をlocalStorageへ保存する(初回・再送とも)。
+  writeLastSignalAt(Date.now());
   trackEvent('signal_sent', { send_type: isFirstSend ? 'first' : 'resend' });
 
   // 4. 499秒後にまた送れるようにする
@@ -358,11 +457,23 @@ async function init(): Promise<void> {
         },
       },
     );
-    button.disabled = false;
+
+    if (restoredState.needsPresenceRejoin) {
+      // 499秒以内にリロードしたユーザーは今も空を見ている扱い。presenceへ復帰だけさせる。
+      // ここではsendSignalを呼ばないため、他のユーザーへ新しいホシミル信号は通知されない。
+      watcher.join();
+    }
+
+    // 「誰カノ信号ヲ待ッテイマス」で待機中はボタンを出さない。残り時間経過後にscheduleResendが有効化する。
+    if (appEl.dataset.state !== 'waiting') {
+      button.disabled = false;
+    }
   } catch (error) {
     console.error(error);
   }
 }
+
+const restoredState = restoreSignalState();
 
 initAnalytics();
 void init();
