@@ -6,7 +6,6 @@ import { watchHoshimiruSignal } from './presence';
 
 const appEl = document.getElementById('app') as HTMLDivElement;
 const button = document.getElementById('signal-button') as HTMLButtonElement;
-const statusEl = document.getElementById('status') as HTMLParagraphElement;
 const lineEl = document.getElementById('signal-line') as unknown as SVGPathElement;
 const glowEl = document.getElementById('signal-glow') as unknown as SVGCircleElement;
 const countEl = document.getElementById('count-display') as HTMLParagraphElement;
@@ -19,6 +18,8 @@ const privacyModalClose = document.getElementById('privacy-modal-close') as HTML
 
 const audioManager = new AudioManager();
 const LAUNCH_DURATION_MS = 1000;
+// 送信演出が終わってから「空へ信号ヲ送信中」を維持し、その後「誰カノ信号ヲ待ッテイマス」へ切り替えるまでの時間。
+const SENDING_HOLD_MS = 1500;
 const NOISE_MIN_DELAY_MS = 4000;
 const NOISE_MAX_DELAY_MS = 14000;
 const NOISE_DURATION_MS = 600;
@@ -36,6 +37,7 @@ let watcher: HoshimiruWatcher | null = null;
 let lastPointerPosition: { x: number; y: number } | null = null;
 let waveAnimationFrame: number | undefined;
 let resendTimer: number | undefined;
+let sendingHoldTimer: number | undefined;
 
 function randomBetween(min: number, max: number): number {
   return min + Math.random() * (max - min);
@@ -83,8 +85,12 @@ function applyCountText(count: number): void {
     countEl.innerHTML = hasSentSignal
       ? 'ホシミル信号ハアリマセン<br />夜空ヲ独リ占メシテイマス'
       : 'ホシミル信号ハアリマセン';
+    // 0人表示はリアルタイムな人数ではないため、呼吸アニメーションは付けない。
+    countEl.classList.remove('is-live');
   } else {
     countEl.textContent = `ホシミル信号　${count}人受信`;
+    // N人受信のときだけ、ゆっくりした呼吸アニメーションを有効にする。
+    countEl.classList.add('is-live');
   }
 }
 
@@ -157,6 +163,8 @@ function animateReceivedWave(onComplete: () => void): void {
 
 function flashNewSignal(): void {
   countEl.textContent = 'ホシミル信号ヲ受信';
+  // 受信演出中は呼吸アニメーションを一時停止する。演出終了後にapplyCountTextで再開される。
+  countEl.classList.remove('is-live');
   isReceiving = true;
   lineEl.classList.add('is-pulsing'); // 受信の瞬間、線全体をすっと明るくする
 
@@ -301,11 +309,19 @@ button.addEventListener('click', () => {
   // 4. 499秒後にまた送れるようにする
   scheduleResend();
 
-  // 5. 発射演出が終わってから、ボタンと同じ領域の表示を切り替える
-  window.setTimeout(() => {
-    appEl.dataset.state = 'active';
-    statusEl.textContent = '空へ信号ヲ送信中';
-  }, LAUNCH_DURATION_MS);
+  // 5. ボタンと同じ領域の表示を切り替える。初回・再送とも同じ遷移:
+  //    idle → active(「空へ信号ヲ送信中」。送信演出中から表示) →
+  //    送信演出(LAUNCH_DURATION_MS)が終わってさらに1〜2秒維持 →
+  //    waiting(「誰カノ信号ヲ待ッテイマス」へ静かにクロスフェード)。
+  //    そこから約8分19秒後、scheduleResendがidleへ戻して「モウイチド信号ヲ送ル」を出す。
+  appEl.dataset.state = 'active';
+  if (sendingHoldTimer !== undefined) window.clearTimeout(sendingHoldTimer);
+  sendingHoldTimer = window.setTimeout(() => {
+    sendingHoldTimer = undefined;
+    if (appEl.dataset.state === 'active') {
+      appEl.dataset.state = 'waiting';
+    }
+  }, LAUNCH_DURATION_MS + SENDING_HOLD_MS);
 });
 
 muteButton.addEventListener('click', () => {

@@ -53,7 +53,7 @@ body {
 }
 
 /*
-  「信号ヲ送ル」ボタンと「空へ信号ヲ送信中」は同一領域に重ねて配置し、
+  「信号ヲ送ル」ボタン・「空へ信号ヲ送信中」・「誰カノ信号ヲ待ッテイマス」は同一領域に重ねて配置し、
   opacityの切り替えだけで表示を入れ替える。要素の出し入れをしないため
   この領域のサイズ・位置はどの状態でも変化しない。
 */
@@ -103,12 +103,19 @@ body {
   pointer-events: none;
 }
 
-#app[data-state="active"] .action-button {
+#app[data-state="active"] .action-button,
+#app[data-state="waiting"] .action-button {
   opacity: 0;
   pointer-events: none;
 }
 
-#app[data-state="active"] .status {
+/* 送信演出直後は「空へ信号ヲ送信中」、その1〜2秒後に「誰カノ信号ヲ待ッテイマス」へ。 */
+/* 2つの文言は同じ位置に重ね、opacityだけで静かにクロスフェードする（レイアウトは動かない）。 */
+#app[data-state="active"] .status-sending {
+  opacity: 1;
+}
+
+#app[data-state="waiting"] .status-waiting {
   opacity: 1;
 }
 
@@ -197,6 +204,31 @@ body {
   color: #7d8bb3;
   font-size: 0.9rem;
   line-height: 1.8;
+}
+
+/*
+  「ホシミル信号　N人受信」のときだけ付くクラス。今この瞬間のリアルタイムな信号であることを
+  示すための、呼吸のようなごくゆっくりした明滅。色は変えずopacityだけを 0.65↔1.0 で往復する。
+  完全には消さない。0人表示と受信演出中(is-live無し)には適用しない。
+*/
+.count.is-live {
+  animation: count-breathe 5s ease-in-out infinite;
+}
+
+@keyframes count-breathe {
+  0%,
+  100% {
+    opacity: 0.65;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .count.is-live {
+    animation: none;
+  }
 }
 
 .footer-note {
