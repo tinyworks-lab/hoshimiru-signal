@@ -3,6 +3,7 @@ import { initAnalytics, trackEvent } from './analytics';
 import { AudioManager } from './audio';
 import type { HoshimiruWatcher } from './presence';
 import { watchHoshimiruSignal } from './presence';
+import { isSameSessionWindow, nextSessionBoundary } from './session-window';
 
 const appEl = document.getElementById('app') as HTMLDivElement;
 const button = document.getElementById('signal-button') as HTMLButtonElement;
@@ -52,6 +53,14 @@ function writeLastSignalAt(timestamp: number): void {
   }
 }
 
+function clearLastSignalAt(): void {
+  try {
+    localStorage.removeItem(LAST_SIGNAL_AT_KEY);
+  } catch {
+    // 読めない/消せない環境では、区間判定側で無効値として扱う。
+  }
+}
+
 let latestCount = 0;
 let hasSentSignal = false;
 let isReceiving = false;
@@ -60,6 +69,8 @@ let lastPointerPosition: { x: number; y: number } | null = null;
 let waveAnimationFrame: number | undefined;
 let resendTimer: number | undefined;
 let sendingHoldTimer: number | undefined;
+// 開いたまま6時間セッション境界(04/10/16/22時)を迎えたときに初回状態へ戻すためのタイマー。
+let sessionBoundaryTimer: number | undefined;
 
 function randomBetween(min: number, max: number): number {
   return min + Math.random() * (max - min);
@@ -359,7 +370,16 @@ function restoreSignalState(): { needsPresenceRejoin: boolean } {
     return { needsPresenceRejoin: false };
   }
 
-  const elapsed = Date.now() - lastSignalAt;
+  const now = Date.now();
+
+  // 最後に送信した時刻と現在時刻が別の6時間セッション区間なら、前回の送信記録を無効化し、
+  // UI上は完全に初回状態(「信号ヲ送ル」)として扱う。経過時間(8分19秒)は見ない。
+  if (!isSameSessionWindow(lastSignalAt, now)) {
+    clearLastSignalAt();
+    return { needsPresenceRejoin: false };
+  }
+
+  const elapsed = now - lastSignalAt;
 
   if (elapsed >= RESEND_INTERVAL_MS) {
     // 499000ms以上経過。「モウイチド信号ヲ送ル」を表示する。
@@ -375,6 +395,44 @@ function restoreSignalState(): { needsPresenceRejoin: boolean } {
   const remainingMs = Math.min(RESEND_INTERVAL_MS - elapsed, RESEND_INTERVAL_MS);
   scheduleResend(remainingMs);
   return { needsPresenceRejoin: true };
+}
+
+// 6時間セッション境界を越えたときに、送信可能状態「だけ」を初回(「信号ヲ送ル」)へ戻す。
+// ここではリロードもpresence退出もせず、/signalsへの送信・送信音/受信音・
+// 送信アニメーション・受信波形も一切発生させない。空を見ている人はpresenceに残る。
+function resetToFirstSignalState(): void {
+  clearLastSignalAt();
+
+  if (resendTimer !== undefined) {
+    window.clearTimeout(resendTimer);
+    resendTimer = undefined;
+  }
+  if (sendingHoldTimer !== undefined) {
+    window.clearTimeout(sendingHoldTimer);
+    sendingHoldTimer = undefined;
+  }
+
+  hasSentSignal = false;
+  button.textContent = '信号ヲ送ル';
+  button.disabled = false;
+  appEl.dataset.state = 'idle';
+
+  // 「夜空ヲ独リ占メシテイマス」など初回状態と異なる文言を、受信演出中でなければ戻す。
+  if (!isReceiving) applyCountText(latestCount);
+}
+
+// 現在時刻から次のセッション境界(04/10/16/22時)までを計算してsetTimeoutする。
+// 高頻度なsetIntervalは使わない。境界を迎えたら初回状態へ戻し、次の境界へ再設定する。
+function scheduleSessionBoundaryReset(): void {
+  if (sessionBoundaryTimer !== undefined) {
+    window.clearTimeout(sessionBoundaryTimer);
+  }
+  const delay = nextSessionBoundary(Date.now()) - Date.now();
+  sessionBoundaryTimer = window.setTimeout(() => {
+    sessionBoundaryTimer = undefined;
+    resetToFirstSignalState();
+    scheduleSessionBoundaryReset();
+  }, Math.max(delay, 0));
 }
 
 button.addEventListener('pointerdown', (event) => {
@@ -478,3 +536,4 @@ const restoredState = restoreSignalState();
 initAnalytics();
 void init();
 scheduleIdleNoise();
+scheduleSessionBoundaryReset();
