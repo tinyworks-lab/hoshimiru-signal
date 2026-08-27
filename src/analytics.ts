@@ -18,19 +18,25 @@ function loadGtagScript(measurementId: string): void {
   if (isScriptLoaded) return;
   isScriptLoaded = true;
 
-  window.dataLayer = window.dataLayer || [];
-  window.gtag = function gtag(...args: unknown[]) {
-    window.dataLayer.push(args);
-  };
-
-  window.gtag('js', new Date());
-  // 個人を特定する情報(uid・signalId・氏名・メール・位置情報など)は一切渡さない。
-  window.gtag('config', measurementId);
-
+  // Google公式のgtag.jsスニペットと同じ構造。
+  // gtag.jsはdataLayerに積まれた「argumentsオブジェクト」だけをコマンドとして解釈するため、
+  // ここでは配列ではなくargumentsをそのままpushする(配列をpushするとconfig/eventが無視される)。
   const script = document.createElement('script');
   script.async = true;
   script.src = `https://www.googletagmanager.com/gtag/js?id=${measurementId}`;
   document.head.appendChild(script);
+
+  window.dataLayer = window.dataLayer || [];
+  window.gtag = function gtag(..._args: unknown[]) {
+    // 引数は配列に展開せず、argumentsオブジェクトそのままを積む。
+    // eslint-disable-next-line prefer-rest-params
+    window.dataLayer.push(arguments);
+  };
+
+  window.gtag('js', new Date());
+  // 個人を特定する情報(uid・signalId・氏名・メール・位置情報など)は一切渡さない。
+  // send_page_viewはデフォルトのままなので、configの時点でpage_viewが自動送信される。
+  window.gtag('config', measurementId);
 }
 
 /** ページ読み込み時に一度だけ呼ぶ。測定IDが未設定なら何もしない(エラーにもならない)。 */
