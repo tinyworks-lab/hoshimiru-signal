@@ -1,0 +1,18 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "presence": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "signals": {
+      ".read": "auth != null",
+      "$signalId": {
+        ".write": "auth != null && ((!data.exists() && newData.exists() && newData.hasChildren(['uid', 'timestamp']) && newData.child('uid').val() === auth.uid) || (data.exists() && !newData.exists() && data.child('uid').val() === auth.uid))"
+      }
+    }
+  }
+}

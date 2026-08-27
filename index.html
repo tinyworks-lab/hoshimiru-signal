@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>今、同じ空を見ている</title>
+  </head>
+  <body>
+    <div id="app" data-state="idle">
+      <div class="intro">
+        <p class="lead">今、同じ空を見ている</p>
+        <p class="tagline">
+          今、世界のどこかで誰かが星を見ているかも。<br />
+          それを知って、知らせるだけ。<br />
+          ただ、それだけの場所。
+        </p>
+      </div>
+
+      <!--
+        ボタンとステータス文言は同じ領域に重ねて配置する。
+        要素の追加・削除ではなくopacityの切り替えのみで状態を変えることで、
+        状態が変わってもこの領域の位置・サイズは変化しない。
+        ページ読み込み直後は匿名認証が完了するまでdisabledにしておく。
+      -->
+      <div class="action-slot">
+        <button id="signal-button" type="button" class="action-button" disabled>信号ヲ送ル</button>
+        <p id="status" class="status">空へ信号ヲ送信中</p>
+      </div>
+
+      <!--
+        水平線は常に1本のsignal-line pathのみ。d属性をJSで時間変化させることで、
+        「線の上に波形を重ねる」のではなく「一本の線そのものが波打つ」ように見せる。
+        通常時はd="M6,20 L214,20"の完全な直線。
+      -->
+      <div class="signal-slot">
+        <svg
+          class="signal-svg"
+          viewBox="0 0 220 40"
+          preserveAspectRatio="xMidYMid meet"
+          aria-hidden="true"
+        >
+          <path id="signal-line" class="signal-line" d="M6,20 L214,20"></path>
+          <circle id="signal-glow" class="signal-glow" cx="0" cy="20" r="0"></circle>
+        </svg>
+      </div>
+
+      <p id="count-display" class="count"></p>
+
+      <div id="footer-note" class="footer-note">
+        <p class="footer-line">イヤホンをつけて、信号を待つ。</p>
+        <p class="footer-line sound-note">
+          信号の送受信音が出ます
+          <button id="mute-button" type="button" class="mute-button" aria-pressed="false">音 ON</button>
+        </p>
+        <p class="footer-line privacy-note">
+          <button id="privacy-link" type="button" class="privacy-link">プライバシー</button>
+        </p>
+      </div>
+    </div>
+
+    <!-- 指先の位置から一度だけ空へ発射される信号の粒。position:fixedのためレイアウトには影響しない -->
+    <div id="launch-particle" class="launch-particle" aria-hidden="true">
+      <div class="launch-particle-motion">
+        <span class="launch-tail"></span>
+        <span class="launch-head"></span>
+      </div>
+    </div>
+
+    <div id="privacy-modal" class="privacy-modal" hidden>
+      <div id="privacy-modal-backdrop" class="privacy-modal-backdrop"></div>
+      <div class="privacy-modal-card" role="dialog" aria-modal="true" aria-labelledby="privacy-modal-title">
+        <h2 id="privacy-modal-title" class="privacy-modal-title">プライバシーについて</h2>
+        <p class="privacy-modal-text">
+          このサイトでは、サービスの提供および利用状況の把握のため、匿名の識別情報とアクセス情報を利用します。
+        </p>
+        <p class="privacy-modal-text">
+          ホシミル信号の人数管理・送受信にはFirebaseを利用しています。
+        </p>
+        <p class="privacy-modal-text">
+          また、サイトの利用状況を把握し改善するため、Google Analyticsを利用します。
+        </p>
+        <p class="privacy-modal-text">氏名、メールアドレス、位置情報などを入力する必要はありません。</p>
+        <p class="privacy-modal-text">取得した情報は、サービスの運営・改善のために利用します。</p>
+        <button id="privacy-modal-close" type="button" class="privacy-modal-close">閉じる</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

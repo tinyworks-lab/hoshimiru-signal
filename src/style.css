@@ -1,0 +1,403 @@
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #05070d;
+  color: #e6e9f0;
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+}
+
+#app {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2.25rem;
+  padding: 2rem;
+  padding-bottom: 7.5rem;
+  text-align: center;
+}
+
+.intro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.lead {
+  font-size: 1.05rem;
+  letter-spacing: 0.15em;
+  color: #9aa4bd;
+  margin: 0;
+}
+
+/* タイトルよりかなり小さく、静かに添えるだけの説明文 */
+.tagline {
+  margin: 0;
+  max-width: 260px;
+  font-size: 0.75rem;
+  line-height: 1.7;
+  letter-spacing: 0.02em;
+  color: #5b6486;
+}
+
+/*
+  「信号ヲ送ル」ボタンと「空へ信号ヲ送信中」は同一領域に重ねて配置し、
+  opacityの切り替えだけで表示を入れ替える。要素の出し入れをしないため
+  この領域のサイズ・位置はどの状態でも変化しない。
+*/
+.action-slot {
+  position: relative;
+  width: 100%;
+  max-width: 300px;
+  height: 3.75rem;
+}
+
+.action-button,
+.status {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.4s ease;
+}
+
+.action-button {
+  background: transparent;
+  border: 1px solid #4a5578;
+  color: #e6e9f0;
+  font-size: 1rem;
+  letter-spacing: 0.15em;
+  border-radius: 999px;
+  cursor: pointer;
+  padding: 0 1.5rem;
+}
+
+.action-button:active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.action-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.status {
+  color: #e6e9f0;
+  font-size: 1.05rem;
+  letter-spacing: 0.1em;
+  opacity: 0;
+  pointer-events: none;
+}
+
+#app[data-state="active"] .action-button {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#app[data-state="active"] .status {
+  opacity: 1;
+}
+
+/* 信号の水平線。初期状態から常時表示する（受信機の待機状態） */
+.signal-slot {
+  height: 2.5rem;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.signal-svg {
+  width: 100%;
+  max-width: 260px;
+  height: 40px;
+  overflow: visible;
+}
+
+/*
+  常時1本だけのsignal-line path。通常時・待機中の微弱ノイズ・本当の受信信号のいずれも
+  この同じpathのd属性をJSで書き換えて表現する（線を重ねるのではなく、線そのものが変形する）。
+  ネオンのように強くはせず、暗さに慣れた目で認識できる程度の明るさ。
+*/
+.signal-line {
+  fill: none;
+  stroke: rgba(215, 222, 240, 0.55);
+  stroke-width: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: none;
+  /* 発光が消えるときはゆっくり(約1秒)。点灯する瞬間は.is-pulsing側の速い設定が使われる。 */
+  transition: stroke 1s ease, stroke-width 1s ease, filter 1s ease;
+}
+
+/* 新しいuidによる本当の受信信号だけ、線全体に一瞬「電気が通った」ような発光を与える */
+.signal-line.is-pulsing {
+  stroke: #eef1fa;
+  stroke-width: 1.6;
+  filter: drop-shadow(0 0 3px rgba(227, 232, 245, 0.6));
+  transition: stroke 0.15s ease, stroke-width 0.15s ease, filter 0.15s ease;
+}
+
+/*
+  線の中だけで光る、ごく小さな光点。待機中のランダムな微弱反応にも、
+  本当の受信信号が今どこを伝わっているかを示す一瞬の輝きにも使う。
+  線全体を明るくするのではなく、その一点だけが明るくなるようにする。
+*/
+.signal-glow {
+  fill: #e3e8f5;
+  opacity: 0;
+  filter: blur(1.1px);
+}
+
+.signal-glow.is-flashing {
+  animation-name: glow-flash;
+  animation-timing-function: ease-in-out;
+  animation-fill-mode: forwards;
+}
+
+@keyframes glow-flash {
+  0% {
+    opacity: 0;
+  }
+  40% {
+    opacity: var(--glow-peak, 0.6);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/*
+  受信人数の表示。ページ読み込み直後から常時表示し、
+  1行・2行どちらの文言でも高さが変わらないよう固定する。
+*/
+.count {
+  margin: 0;
+  width: 100%;
+  max-width: 300px;
+  height: 3.6rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #7d8bb3;
+  font-size: 0.9rem;
+  line-height: 1.8;
+}
+
+.footer-note {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  color: #5b6486;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+
+.footer-line {
+  margin: 0;
+}
+
+/* 「イヤホンをつけて、信号を待つ。」よりさらに控えめな、音についての案内 */
+.sound-note {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.68rem;
+  color: #4d5675;
+}
+
+.mute-button {
+  background: transparent;
+  border: 1px solid rgba(91, 100, 134, 0.6);
+  color: #7d8bb3;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  cursor: pointer;
+}
+
+.mute-button:active {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* 音の案内よりさらに控えめな、プライバシーへのリンクだけの行 */
+.privacy-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.privacy-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #454d68;
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* プライバシー説明のオーバーレイ。世界観を壊さない黒背景＋淡い青白文字 */
+.privacy-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.privacy-modal[hidden] {
+  display: none;
+}
+
+.privacy-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 3, 8, 0.75);
+}
+
+.privacy-modal-card {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: #0a0d16;
+  border: 1px solid #2a3150;
+  border-radius: 12px;
+  padding: 1.5rem;
+  text-align: left;
+}
+
+.privacy-modal-title {
+  margin: 0 0 1rem;
+  font-size: 0.95rem;
+  letter-spacing: 0.05em;
+  color: #e6e9f0;
+}
+
+.privacy-modal-text {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  line-height: 1.7;
+  color: #aab2cc;
+}
+
+.privacy-modal-text:last-of-type {
+  margin-bottom: 1.25rem;
+}
+
+.privacy-modal-close {
+  display: block;
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid #4a5578;
+  color: #e6e9f0;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  border-radius: 999px;
+  padding: 0.4rem 1.2rem;
+  cursor: pointer;
+}
+
+.privacy-modal-close:active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/*
+  タップした位置から一度だけ空へ飛んでいく信号の粒。
+  外側の要素はタップ座標に静止したアンカーとして配置し（transformで中心合わせのみ）、
+  実際の移動アニメーションは内側のlaunch-particle-motionだけに適用する。
+*/
+.launch-particle {
+  position: fixed;
+  width: 0;
+  height: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.launch-particle-motion {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 6px;
+  height: 46px;
+  opacity: 0;
+}
+
+.launch-particle.is-active .launch-particle-motion {
+  animation: launch-particle-motion 1s cubic-bezier(0.45, 0, 0.85, 0.35) forwards;
+}
+
+.launch-tail {
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  width: 2px;
+  height: 38px;
+  transform: translateX(-50%);
+  background: linear-gradient(to top, rgba(215, 222, 240, 0), rgba(215, 222, 240, 0.55));
+}
+
+.launch-head {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  transform: translateX(-50%);
+  background: #e3e8f5;
+  box-shadow: 0 0 5px rgba(215, 222, 240, 0.7);
+}
+
+@keyframes launch-particle-motion {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0.5);
+  }
+  8% {
+    opacity: 1;
+    transform: translateY(-8px) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-38vh) scale(1);
+  }
+  90% {
+    opacity: 1;
+    transform: translateY(-100vh) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-118vh) scale(1);
+  }
+}
