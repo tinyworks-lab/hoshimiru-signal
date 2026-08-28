@@ -10,10 +10,60 @@ html,
 body {
   margin: 0;
   padding: 0;
-  height: 100%;
-  background: #05070d;
-  color: #e6e9f0;
+  min-height: 100%;
+}
+
+/*
+  暗色のフォールバックは根(html)だけに敷く。
+  body に background を付けると、body::before(z-index:-2)の
+  キーヴィジュアル画像を body 自身の背景が覆ってしまうため、body には付けない。
+*/
+html {
+  background-color: #04060d;
+}
+
+body {
+  color: #e8ecf7;
   font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+}
+
+/*
+  キーヴィジュアル（天の川）を画面全面の背景に敷く。
+  position:fixed の擬似要素にすることで、内容がスクロールしても背景は動かず、
+  background-attachment:fixed のモバイルでの不具合も避ける。
+  画像自体の青と濃淡を主役にする。
+*/
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background-image: url("/hoshimiruKV.png");
+  background-repeat: no-repeat;
+  background-size: cover;
+  /* 天の川の青い部分と右側の暗い空の両方がある程度見えるよう、やや右・やや上を見せる。 */
+  background-position: 64% 40%;
+}
+
+/*
+  文字の可読性のためのオーバーレイ。ごく薄い黒〜濃紺。
+  天の川の明るい中央部と、上部・下部にだけ軽く陰りを足し、
+  星空は暗くしすぎない。
+*/
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(4, 7, 18, 0.5) 0%,
+      rgba(4, 7, 18, 0.22) 26%,
+      rgba(4, 7, 18, 0.22) 62%,
+      rgba(4, 7, 18, 0.55) 100%
+    );
+  pointer-events: none;
 }
 
 #app {
@@ -21,106 +71,114 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 2.25rem;
-  padding: 2rem;
-  /* 下部固定の footer-note ぶんの余白。footer の行数に合わせる。 */
-  padding-bottom: 6.25rem;
+  padding: 2rem 1.5rem;
+  /* 下部固定の footer-note ぶんの余白。 */
+  padding-bottom: 5.5rem;
   text-align: center;
 }
 
-.intro {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-.lead {
-  font-size: 1.05rem;
-  letter-spacing: 0.15em;
-  color: #9aa4bd;
-  margin: 0;
-}
-
-/* タイトルよりかなり小さく、静かに添えるだけの説明文 */
-.tagline {
-  margin: 0;
-  max-width: 260px;
-  font-size: 0.75rem;
-  line-height: 1.7;
-  letter-spacing: 0.02em;
-  color: #5b6486;
+/*
+  上部の小さな受信表示。小さく、白〜青白色、letter-spacing はやや広め。
+  大きなタイトルにはしない。
+*/
+.receipt {
+  margin: 0.25rem 0 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.32em;
+  /* 中黒ぶん右に寄るのを軽く相殺 */
+  text-indent: 0.32em;
+  color: #cdd8f2;
+  text-shadow: 0 1px 14px rgba(2, 4, 10, 0.75);
 }
 
 /*
-  「信号ヲ送ル」ボタン・「空へ信号ヲ送信中」・「誰カノ信号ヲ待ッテイマス」は同一領域に重ねて配置し、
-  opacityの切り替えだけで表示を入れ替える。要素の出し入れをしないため
-  この領域のサイズ・位置はどの状態でも変化しない。
+  主要体験（人数 → 信号線 → 送信ボタン → 受信数）。
+  1画面目 = 星空を見る・信号を送る体験。受信表示ぶんと上下paddingを差し引いた
+  ほぼ100dvhの高さを確保し、中身を上下中央へ置く。これにより .about は
+  自然に「2画面目（この場所について）」として下へ送られる。
+  星空の上に直接浮かせ、カードでは囲まない。
 */
-.action-slot {
-  position: relative;
+.stage {
+  flex: 0 0 auto;
   width: 100%;
-  max-width: 300px;
-  height: 3.75rem;
+  max-width: 340px;
+  min-height: calc(100dvh - 3.5rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2.25rem;
 }
 
-.action-button,
-.status {
-  position: absolute;
-  inset: 0;
-  margin: 0;
+/* 人数表示の領域。高さを2行分確保し、独り占め表示への切り替えで縦位置が動かないようにする。 */
+.watching-slot {
+  width: 100%;
+  min-height: 3.4rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: opacity 0.4s ease;
 }
 
-.action-button {
-  background: transparent;
-  border: 1px solid #4a5578;
-  color: #e6e9f0;
-  font-size: 1rem;
-  letter-spacing: 0.15em;
-  border-radius: 999px;
-  cursor: pointer;
-  padding: 0 1.5rem;
-}
-
-.action-button:active {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.action-button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.status {
-  color: #e6e9f0;
-  font-size: 1.05rem;
+/*
+  「今、N人が空を見ている」と静かに感じられるタイポグラフィ。
+  1行目（人数 or 独り占め文）の切り替え時だけ opacity を軽く落として差し替える。
+  行の高さは常に2行分確保されるため、独り占め表示に切り替わっても縦位置は動かない。
+*/
+.readout-watching {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.9;
   letter-spacing: 0.1em;
-  opacity: 0;
-  pointer-events: none;
+  color: #b7c4e6;
+  text-shadow: 0 1px 14px rgba(2, 4, 10, 0.7);
+  transition: opacity 0.16s ease;
 }
 
-#app[data-state="active"] .action-button,
-#app[data-state="waiting"] .action-button {
-  opacity: 0;
-  pointer-events: none;
+.readout-watching.is-changing {
+  opacity: 0.08;
 }
 
-/* 送信演出直後は「空へ信号ヲ送信中」、その1〜2秒後に「誰カノ信号ヲ待ッテイマス」へ。 */
-/* 2つの文言は同じ位置に重ね、opacityだけで静かにクロスフェードする（レイアウトは動かない）。 */
-#app[data-state="active"] .status-sending {
+.watching-main,
+.watching-sub {
+  display: block;
+}
+
+/* 「○人」「○」の数字。本文より大きくするが、アクセスカウンターのようには巨大にしない。 */
+.readout-number {
+  color: #e4ecff;
+  font-size: 1.5rem;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  /* 受信時の ping 用にゆっくり。 */
+  transition: color 0.35s ease;
+}
+
+/* 独り占め時の1行目は、通常の人数表示より少し静かな色にする */
+.readout-watching.is-solo .watching-main {
+  color: #8f9bc0;
+  font-size: 0.92rem;
+  letter-spacing: 0.12em;
+}
+
+/*
+  「夜空を独り占めしてください」。通常時は不可視だが高さは常に確保する。
+  独り占めに入ったときだけ、さらに淡い色でゆっくりフェードインする。
+*/
+.watching-sub {
+  margin-top: 0.2rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  color: #7481a4;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.watching-sub.is-visible {
   opacity: 1;
 }
 
-#app[data-state="waiting"] .status-waiting {
-  opacity: 1;
-}
-
-/* 信号の水平線。初期状態から常時表示する（受信機の待機状態） */
+/* 信号の水平線。初期状態から常時表示する（受信機の待機状態）。 */
 .signal-slot {
   height: 2.5rem;
   width: 100%;
@@ -139,36 +197,38 @@ body {
 /*
   常時1本だけのsignal-line path。通常時・待機中の微弱ノイズ・本当の受信信号のいずれも
   この同じpathのd属性をJSで書き換えて表現する（線を重ねるのではなく、線そのものが変形する）。
-  ネオンのように強くはせず、暗さに慣れた目で認識できる程度の明るさ。
+  細く、白〜青白色。通常時は控えめ、受信時（--line-strength）にだけ少し明るくなる。
+  JS が動かすカスタムプロパティ（--line-strength / --glow-spread / --glow-blue /
+  --line-settle）と数式の対応関係は維持し、係数だけを調整している。
 */
 .signal-line {
   fill: none;
   /*
     累積受信数に応じて線が少しずつ育つ。--line-strength(0〜1)をJSが動かし、
-    太さ・明るさ・発光感がまとめて連動する。0のときは従来と同じ淡い直線。
+    太さ・明るさ・発光感がまとめて連動する。0のときは細く淡い青白の直線。
   */
-  stroke: rgba(215, 222, 240, calc(0.55 + var(--line-strength, 0) * 0.4));
-  stroke-width: calc(1px + var(--line-strength, 0) * 2px);
+  stroke: rgba(206, 222, 255, calc(0.4 + var(--line-strength, 0) * 0.5));
+  stroke-width: calc(0.9px + var(--line-strength, 0) * 1.7px);
   stroke-linecap: round;
   stroke-linejoin: round;
   /*
     発光は2層。
-    近い層(--line-strength)は線本体の明るさに連動する基本の発光。常に白のまま。
+    近い層(--line-strength)は線本体の明るさに連動する基本の発光。淡い青白のまま。
     遠い層(--glow-spread)は10件以降だけ現れる、周囲へ広がる淡いハロー。
     --glow-blue は12件→30件で 0→1 になり、この遠い層の色だけを
-    白 → 夜空/月光のような淡い青白色へ寄せる（rgb(168,212,255)付近）。線本体は白のまま。
+    白 → 夜空/月光のような淡い青白色へ寄せる。線本体は青白のまま。
   */
   filter:
     drop-shadow(
-      0 0 calc(var(--line-strength, 0) * 6.5px)
-      rgba(222, 228, 244, calc(var(--line-strength, 0) * 0.5))
+      0 0 calc(var(--line-strength, 0) * 6px)
+      rgba(210, 224, 255, calc(var(--line-strength, 0) * 0.45))
     )
     drop-shadow(
-      0 0 calc(7px + var(--glow-spread, 0) * 16px)
+      0 0 calc(6px + var(--glow-spread, 0) * 16px)
       rgb(
-        calc(223 - var(--glow-blue, 0) * 55)
-        calc(230 - var(--glow-blue, 0) * 18)
-        calc(246 + var(--glow-blue, 0) * 9)
+        calc(214 - var(--glow-blue, 0) * 46)
+        calc(228 - var(--glow-blue, 0) * 16)
+        calc(250 + var(--glow-blue, 0) * 5)
         / calc(var(--glow-spread, 0) * 0.3)
       )
     );
@@ -201,7 +261,7 @@ body {
   線全体を明るくするのではなく、その一点だけが明るくなるようにする。
 */
 .signal-glow {
-  fill: #e3e8f5;
+  fill: #e6ecfb;
   opacity: 0;
   filter: blur(1.1px);
 }
@@ -225,87 +285,171 @@ body {
 }
 
 /*
-  線とフッターの間の、静かな状態表示。ダッシュボード的に見せない。
-  1行目=接続人数、2行目=自分が送ってから届いた信号数。
-  min-height で常に3行分（1行目＋2行目のリード＋本文）を確保し、
-  送信前後や数字の変化でレイアウトが動かないようにする。
+  「信号ヲ送ル」ボタン・「空へ信号ヲ送信中」・「誰カノ信号ヲ待ッテイマス」は
+  同一領域に重ねて配置し、opacityの切り替えだけで表示を入れ替える。
+  要素の出し入れをしないため、この領域のサイズ・位置はどの状態でも変化しない。
 */
-.status-readout {
-  margin: 0;
+.action-slot {
+  position: relative;
   width: 100%;
-  max-width: 320px;
-  min-height: 5rem;
+  /* 横に大きく見えすぎないよう、従来(300px)の約85%に。高さ・中央配置は維持。 */
+  max-width: 255px;
+  height: 3.5rem;
+  margin: 0 auto;
+}
+
+.action-button,
+.status {
+  position: absolute;
+  inset: 0;
+  margin: 0;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.7rem;
-  text-align: center;
-}
-
-.readout-line {
-  margin: 0;
-  font-size: 0.8rem;
-  line-height: 1.7;
-  letter-spacing: 0.06em;
-  /* 現在の本文より少し控えめ */
-  color: #6b7699;
-}
-
-/* 「○人」「○」の数字だけ、ほんの少しだけ存在感を持たせる */
-.readout-number {
-  color: #aab4d4;
-  font-size: 0.95rem;
-  font-variant-numeric: tabular-nums;
-  /* 色は ping 用にゆっくり。 */
-  transition: color 0.35s ease;
-}
-
-.watching-main,
-.watching-sub {
-  display: block;
+  transition: opacity 0.4s ease;
 }
 
 /*
-  1行目（人数 or 独り占め文）の切り替え時だけ、opacity を軽く落として差し替える。
-  行の高さは常に「2行分」確保されるため、独り占め表示に切り替わっても縦位置は動かない。
+  一般的なアプリの大きなCTA感を弱くする。透明〜ごく薄い半透明、
+  細い青白の境界線、白文字、控えめな角丸。十分なタップ領域は確保する。
 */
-.readout-watching {
-  transition: opacity 0.16s ease;
+.action-button {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(200, 216, 255, 0.32);
+  color: #eef2fc;
+  font-size: 0.98rem;
+  letter-spacing: 0.16em;
+  /* 中黒・カタカナぶん右に寄るのを軽く相殺 */
+  text-indent: 0.16em;
+  border-radius: 12px;
+  cursor: pointer;
+  padding: 0 1.5rem;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    opacity 0.4s ease,
+    background-color 0.25s ease,
+    border-color 0.25s ease;
 }
 
-.readout-watching.is-changing {
-  opacity: 0.08;
+/* hover / active も派手に発光させず、わずかに明るくなる程度。 */
+@media (hover: hover) {
+  .action-button:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(210, 224, 255, 0.5);
+  }
 }
 
-/* 独り占め時の1行目は、通常の人数表示より少し静かな色にする */
-.readout-watching.is-solo .watching-main {
-  color: #5f6a8c;
+.action-button:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
 }
 
-/*
-  「夜空を独り占めしてください」。通常時は不可視だが高さは常に確保する。
-  独り占めに入ったときだけ、さらに淡い色でゆっくりフェードインする。
-*/
-.watching-sub {
-  margin-top: 0.15rem;
-  font-size: 0.72rem;
-  letter-spacing: 0.09em;
-  color: #525c7d;
+.action-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.status {
+  color: #e6ebf7;
+  font-size: 0.98rem;
+  letter-spacing: 0.12em;
+  text-indent: 0.12em;
+  text-shadow: 0 1px 14px rgba(2, 4, 10, 0.7);
   opacity: 0;
-  transition: opacity 0.6s ease;
+  pointer-events: none;
 }
 
-.watching-sub.is-visible {
+#app[data-state="active"] .action-button,
+#app[data-state="waiting"] .action-button {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 送信演出直後は「空へ信号ヲ送信中」、その1〜2秒後に「誰カノ信号ヲ待ッテイマス」へ。 */
+/* 2つの文言は同じ位置に重ね、opacityだけで静かにクロスフェードする（レイアウトは動かない）。 */
+#app[data-state="active"] .status-sending {
+  opacity: 1;
+}
+
+#app[data-state="waiting"] .status-waiting {
   opacity: 1;
 }
 
 /*
+  待機中に信号を受信した瞬間だけ見せる一時メッセージ。
+  main.ts が #app へ .is-received を約8秒付与する。CSSは data-state="waiting" の
+  ときだけ効くようゲートしてあり、状態が変わればクラスが残っていても自動で隠れる。
+  派手に光らせず、opacity と わずかな letter-spacing、ごく弱い明るさだけで静かに出す。
+*/
+.status-received {
+  flex-direction: column;
+  /* 「ホシミル信号ヲ受信 → 誰カガ空ヲ見上ゲマシタ」という意味の流れを出すため主行と副行を少し離す。 */
+  gap: 0.45rem;
+  text-indent: 0;
+  letter-spacing: 0.22em;
+  transition:
+    opacity 1.1s ease,
+    letter-spacing 1.1s ease;
+}
+
+.status-received-main {
+  /* 主行は必ず1行。スマホ幅で折り返さないよう、この行だけ少し小さめ・字間も控えめにする。 */
+  white-space: nowrap;
+  font-size: 0.9rem;
+  letter-spacing: 0.06em;
+  color: #eef2fc;
+  /* ごく弱い明るさ。8秒間ずっと強くは光らせない。 */
+  text-shadow:
+    0 0 10px rgba(200, 216, 255, 0.22),
+    0 1px 14px rgba(2, 4, 10, 0.7);
+}
+
+.status-received-sub {
+  /* 主行より一段小さいまま、少しだけ重要に見せる（主行 0.9rem は超えない）。 */
+  font-size: 0.79rem;
+  letter-spacing: 0.14em;
+  color: #b0bbdb;
+  text-shadow: 0 1px 12px rgba(2, 4, 10, 0.7);
+}
+
+/* 受信の瞬間だけ「誰カノ信号ヲ待ッテイマス」を伏せ、受信メッセージへ静かに切り替える。 */
+#app[data-state="waiting"].is-received .status-waiting {
+  opacity: 0;
+}
+
+#app[data-state="waiting"].is-received .status-received {
+  opacity: 1;
+  letter-spacing: 0.12em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-received {
+    transition-duration: 0.12s;
+    letter-spacing: 0.12em;
+  }
+}
+
+/*
+  自分が信号を送ってから届いた信号数。カード状にせず、星空の上に小さな文字で。
   送信前は不可視（ただし高さは確保）。送信後に静かにフェードインする。
+  受信メッセージ（.status-received の2行目）と窮屈にならないよう上に余白を取り、
+  色は受信メッセージより一段控えめにして「下側の補助情報」に留める。
 */
 .readout-received {
+  margin: 0.5rem 0 0;
+  font-size: 0.76rem;
+  line-height: 1.7;
+  letter-spacing: 0.08em;
+  color: #828fb2;
+  text-shadow: 0 1px 12px rgba(2, 4, 10, 0.7);
   opacity: 0;
   transition: opacity 0.5s ease;
+}
+
+.readout-received .readout-number {
+  color: #aab6d6;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  transition: color 0.35s ease;
 }
 
 .readout-received.is-visible {
@@ -314,7 +458,7 @@ body {
 
 /* 信号を受信した瞬間だけ、ごく短く数字が少し明るくなる（派手なカウンター演出はしない） */
 .readout-received.is-pinged .readout-number {
-  color: #d3dbf1;
+  color: #e2e9fb;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -325,17 +469,38 @@ body {
   }
 }
 
+/* 主要体験より下の説明。星空体験を邪魔しない控えめな文字。 */
+.about {
+  width: 100%;
+  max-width: 300px;
+  margin: 3.5rem 0 0.5rem;
+}
+
+/* 世界観説明は主役ではない。従来より約22%小さくして静かに読める程度に。 */
+.about-main {
+  margin: 0;
+  font-size: 0.62rem;
+  line-height: 1.95;
+  letter-spacing: 0.06em;
+  color: #a7b3d4;
+  text-shadow: 0 1px 12px rgba(2, 4, 10, 0.7);
+}
+
+/*
+  フッター。視覚的優先度を下げ、星空体験を邪魔しない。
+  下部固定と safe-area 対応は維持する。
+*/
 .footer-note {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.4rem;
-  color: #5b6486;
-  font-size: 0.75rem;
+  gap: 0.35rem;
+  color: #5c668a;
+  font-size: 0.72rem;
   letter-spacing: 0.08em;
   text-align: center;
 }
@@ -344,31 +509,31 @@ body {
   margin: 0;
 }
 
-/* 「イヤホンをつけて、信号を待つ。」よりさらに控えめな、音についての案内 */
 .sound-note {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.68rem;
-  color: #4d5675;
+  font-size: 0.64rem;
+  color: #4b5573;
+  text-shadow: 0 1px 10px rgba(2, 4, 10, 0.7);
 }
 
 .mute-button {
   background: transparent;
-  border: 1px solid rgba(91, 100, 134, 0.6);
-  color: #7d8bb3;
-  font-size: 0.68rem;
+  border: 1px solid rgba(92, 102, 138, 0.5);
+  color: #79859f;
+  font-size: 0.64rem;
   letter-spacing: 0.04em;
   border-radius: 999px;
   padding: 0.15rem 0.6rem;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .mute-button:active {
   background: rgba(255, 255, 255, 0.05);
 }
 
-/* 音の案内よりさらに控えめな、プライバシーへのリンクだけの行 */
 .privacy-note {
   display: flex;
   align-items: center;
@@ -380,7 +545,7 @@ body {
   border: none;
   padding: 0;
   color: #454d68;
-  font-size: 0.6rem;
+  font-size: 0.58rem;
   letter-spacing: 0.04em;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -405,7 +570,7 @@ body {
 .privacy-modal-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(2, 3, 8, 0.75);
+  background: rgba(2, 3, 8, 0.78);
 }
 
 .privacy-modal-card {
@@ -414,8 +579,8 @@ body {
   max-width: 360px;
   max-height: 80vh;
   overflow-y: auto;
-  background: #0a0d16;
-  border: 1px solid #2a3150;
+  background: #080b14;
+  border: 1px solid #232a44;
   border-radius: 12px;
   padding: 1.5rem;
   text-align: left;
@@ -490,7 +655,7 @@ body {
   width: 2px;
   height: 38px;
   transform: translateX(-50%);
-  background: linear-gradient(to top, rgba(215, 222, 240, 0), rgba(215, 222, 240, 0.55));
+  background: linear-gradient(to top, rgba(210, 224, 255, 0), rgba(210, 224, 255, 0.55));
 }
 
 .launch-head {
@@ -501,8 +666,8 @@ body {
   height: 6px;
   border-radius: 50%;
   transform: translateX(-50%);
-  background: #e3e8f5;
-  box-shadow: 0 0 5px rgba(215, 222, 240, 0.7);
+  background: #e6ecfb;
+  box-shadow: 0 0 5px rgba(210, 224, 255, 0.7);
 }
 
 @keyframes launch-particle-motion {
@@ -525,5 +690,63 @@ body {
   100% {
     opacity: 0;
     transform: translateY(-118vh) scale(1);
+  }
+}
+
+/*
+  PC。コンテンツは横に広げず中央の細い領域にまとめる。
+  縦長の背景画像なので background-position を調整し、天の川の青と右側の暗さの
+  両方が見えるようにする。
+*/
+@media (min-width: 768px) {
+  body::before {
+    background-position: 50% 24%;
+  }
+
+  #app {
+    padding-top: 3rem;
+  }
+
+  .stage {
+    max-width: 360px;
+    gap: 2.5rem;
+  }
+
+  /*
+    PCでは主要UIがやや小さく見えるため、人数表示・状態メッセージ・受信数だけを
+    10〜15%ほど大きくする。上部の「ホシミル信号ヲ受信シマシタ」は現状維持。
+  */
+  .readout-watching {
+    font-size: 1rem;
+  }
+
+  .readout-number {
+    font-size: 1.7rem;
+  }
+
+  .readout-watching.is-solo .watching-main {
+    font-size: 1.03rem;
+  }
+
+  .watching-sub {
+    font-size: 0.8rem;
+  }
+
+  .status {
+    font-size: 1.1rem;
+  }
+
+  .readout-received {
+    font-size: 0.85rem;
+  }
+
+  .readout-received .readout-number {
+    font-size: 1.07rem;
+  }
+}
+
+@media (min-width: 1200px) {
+  body::before {
+    background-position: 50% 20%;
   }
 }

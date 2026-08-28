@@ -34,6 +34,9 @@ const LINE_LEFT = 6;
 const LINE_RIGHT = 214;
 const LINE_Y = 20;
 const RESEND_INTERVAL_MS = 499000; // 8分19秒
+// 待機中に信号を受信したとき、「ホシミル信号ヲ受信シマシタ」の一時表示を維持する時間。
+// 受信音・波形・受信カウントには関与しない、表示だけの演出。
+const RECEIVED_MESSAGE_MS = 8000;
 // 最後にホシミル信号を送った時刻(Date.now()のミリ秒)。リロードで再送制限をリセットさせないために使う。
 const LAST_SIGNAL_AT_KEY = 'hoshimiru_last_signal_at';
 
@@ -64,6 +67,40 @@ function clearLastSignalAt(): void {
   }
 }
 
+// 「この空で受信したホシミル信号 N」の累計を、同じタブの閲覧セッション中だけ保持する。
+// sessionStorage なので、同じタブのリロードでは残り、タブを閉じる／ブラウザ終了で自動的に消える。
+// localStorage も Firebase も使わない。期限処理は行わない（消えるのは sessionStorage 任せ）。
+const RECEIVED_TOTAL_KEY = 'hoshimiruReceivedTotal';
+
+function readReceivedTotal(): number {
+  try {
+    const raw = sessionStorage.getItem(RECEIVED_TOTAL_KEY);
+    if (raw === null) return 0;
+    const value = Number(raw);
+    // 数値として正常で 0 以上のときだけ採用。壊れた値・文字列・負数・NaN は 0 扱い。
+    if (!Number.isFinite(value) || value < 0) return 0;
+    return Math.floor(value);
+  } catch {
+    return 0;
+  }
+}
+
+function writeReceivedTotal(total: number): void {
+  try {
+    sessionStorage.setItem(RECEIVED_TOTAL_KEY, String(Math.max(Math.floor(total), 0)));
+  } catch {
+    // sessionStorage が使えない環境では、メモリ上の累計だけで動作する。
+  }
+}
+
+function clearReceivedTotal(): void {
+  try {
+    sessionStorage.removeItem(RECEIVED_TOTAL_KEY);
+  } catch {
+    // 消せない環境でも、読み出し側で無効値は 0 として扱う。
+  }
+}
+
 // presence: いま接続しているだけの人も含む「自分以外」のuid数（「予感」に使う）。
 let connectedOthers = 0;
 // presence: そのうち信号を送った「自分以外」のuid数（人数表示に使う。自分ぶんは下で加算）。
@@ -87,6 +124,9 @@ let resendTimer: number | undefined;
 let sendingHoldTimer: number | undefined;
 // 開いたまま6時間セッション境界(04/10/16/22時)を迎えたときに初回状態へ戻すためのタイマー。
 let sessionBoundaryTimer: number | undefined;
+// 「ホシミル信号ヲ受信シマシタ」の一時表示を戻すためのタイマー。
+// 連続受信では毎回このタイマーを張り直し、最新の受信から8秒後に一度だけ戻す。
+let receivedMessageTimer: number | undefined;
 
 function randomBetween(min: number, max: number): number {
   return min + Math.random() * (max - min);
@@ -206,19 +246,23 @@ function renderWatchingCount(): void {
   }, NUMBER_FADE_MS);
 }
 
-// --- 2) 「あなたが受信したホシミル信号 ○」 --------------------------------------
+// --- 2) 「受信したホシミル信号 ○」（このページを開いてからの受信累計） -----------------
 let receivedPingTimer: number | undefined;
 
 // options.ping=true のとき、数字がごく短く明るくなる（受信の瞬間のみ）。
 function renderReceivedSince(options: { ping?: boolean } = {}): void {
-  if (!isCountingSinceSend) {
-    // 送信前。行は不可視のまま（高さは確保されている）。
+  // 表示条件:
+  //  - 一度でも送信していれば表示（6時間境界で送信前状態へ戻っても hasEverSent は戻らない）。
+  //  - または、この閲覧セッションの受信累計が 1 以上なら表示（リロードで sessionStorage から
+  //    復元した場合を含む）。
+  // どちらでもない（未送信かつ累計0）ときだけ、従来どおり不可視にする（高さは確保）。
+  if (!hasEverSent && receivedTotalOnPage <= 0) {
     receivedLineEl.classList.remove('is-visible');
     return;
   }
 
   receivedLineEl.classList.add('is-visible');
-  receivedBodyEl.textContent = String(Math.max(receivedSignalCount, 0));
+  receivedBodyEl.textContent = String(Math.max(receivedTotalOnPage, 0));
 
   if (options.ping && !prefersReducedMotion) {
     receivedLineEl.classList.add('is-pinged');
@@ -264,9 +308,15 @@ function ramp(value: number, from: number, to: number): number {
   return Math.min(Math.max((value - from) / (to - from), 0), 1);
 }
 
-// 自分が信号を送ってから、他ユーザーから届いた信号の累積数（isCountingSinceSend が true の間だけ増える）。
-// 送信のたびに 0 に戻る。リロード・6時間セッション境界でも 0。線の成長もこの値を基準にする。
+// 【線の成長用】自分が信号を送ってから届いた信号数（isCountingSinceSend が true の間だけ増える）。
+// 送信・再送・6時間セッション境界で 0 に戻る。波形・線の育ち具合(lineGrowthFactor)はこの値を基準にする。
+// ※画面に出す「受信したホシミル信号 N」の表示には使わない（下の receivedTotalOnPage を使う）。
 let receivedSignalCount = 0;
+
+// 【表示用】このタブの閲覧セッション中の受信総数。sessionStorage に保存する（localStorage/Firebaseは使わない）。
+// 送信・再送・6時間セッション境界・波形リセットでは 0 に戻さない。受信ごとに +1 して保存。
+// 同じタブのリロードでは維持され、タブを閉じる／ブラウザ終了で 0 に戻る。
+let receivedTotalOnPage = readReceivedTotal();
 
 // 累積受信数 n → 0〜1 の「育ち具合」。指数飽和に ease-in を掛け、1〜3件は控えめ、
 // 10件付近で十分育ち、20〜30件で頭打ちになるカーブにする。
@@ -450,12 +500,17 @@ function animateReceivedWave(params: WaveRenderParams, onComplete: () => void): 
 }
 
 function flashNewSignal(): void {
-  // 自分が信号を送ってからの受信だけを数える。送信前は数字も線の成長も動かさない
-  // （波・ポーン音の一時的な反応は従来どおり出す）。
+  // 表示用の累計は、送信の有無にかかわらず受信ごとに +1（この閲覧セッション中ずっと積算）。
+  receivedTotalOnPage += 1;
+  writeReceivedTotal(receivedTotalOnPage);
+
+  // 線の成長用のカウントは従来どおり「自分が送ってから」の受信だけを数える（波形の仕様は不変）。
   if (isCountingSinceSend) {
     receivedSignalCount += 1;
-    renderReceivedSince({ ping: true });
   }
+  // 数字（累計値）の更新と受信の瞬間の軽い明滅。表示行は送信前は不可視のまま。
+  renderReceivedSince({ ping: true });
+
   const growth = lineGrowthFactor(receivedSignalCount);
 
   isReceiving = true;
@@ -491,7 +546,9 @@ function flashNewSignal(): void {
   );
 }
 
-// 「送ってから届いた信号数」を 0 に戻し、育った線をゆっくり平常の淡さへ落ち着かせる。
+// 「送ってから届いた信号数」（線の成長用カウント）だけを 0 に戻し、育った線をゆっくり
+// 平常の淡さへ落ち着かせる。画面表示の「受信したホシミル信号 N」は receivedTotalOnPage を
+// 使うため、ここでは 0 に戻らない（再送・セッション境界でも累計は維持される）。
 function resetReceivedSignals(): void {
   receivedSignalCount = 0;
   if (!isReceiving) {
@@ -499,6 +556,31 @@ function resetReceivedSignals(): void {
     applyAccumulatedGlow(0);
   }
   renderReceivedSince();
+}
+
+// --- 受信時の一時表示（表示だけ。通信・受信判定・音・波形には触れない） -----------------
+// 待機中(「誰カノ信号ヲ待ッテイマス」表示中)に信号を受信した瞬間だけ、その領域を
+// 「ホシミル信号ヲ受信シマシタ」へ静かに切り替える。CSS 側は #app[data-state="waiting"]
+// のときだけ .is-received を効かせるため、待機中以外では付与しても見た目は変わらない。
+function clearReceivedMessage(): void {
+  if (receivedMessageTimer !== undefined) {
+    window.clearTimeout(receivedMessageTimer);
+    receivedMessageTimer = undefined;
+  }
+  appEl.classList.remove('is-received');
+}
+
+function showReceivedMessage(): void {
+  // 待機中でなければ一時表示は出さない（受信音・波形・カウントは呼び出し側で従来どおり実行済み）。
+  if (appEl.dataset.state !== 'waiting') return;
+
+  appEl.classList.add('is-received');
+  // 連続受信では毎回張り直し、古いタイマーが先に表示を消さないようにする（最新の受信から8秒）。
+  if (receivedMessageTimer !== undefined) window.clearTimeout(receivedMessageTimer);
+  receivedMessageTimer = window.setTimeout(() => {
+    receivedMessageTimer = undefined;
+    appEl.classList.remove('is-received');
+  }, RECEIVED_MESSAGE_MS);
 }
 
 // --- 「予感」: 他者が新しく空を見始めた気配 -------------------------------------
@@ -811,6 +893,7 @@ function resetToFirstSignalState(): void {
     window.clearTimeout(sendingHoldTimer);
     sendingHoldTimer = undefined;
   }
+  clearReceivedMessage();
 
   button.textContent = '信号ヲ送ル';
   button.disabled = false;
@@ -882,6 +965,8 @@ button.addEventListener('click', () => {
   //    送信演出(LAUNCH_DURATION_MS)が終わってさらに1〜2秒維持 →
   //    waiting(「誰カノ信号ヲ待ッテイマス」へ静かにクロスフェード)。
   //    そこから約8分19秒後、scheduleResendがidleへ戻して「モウイチド信号ヲ送ル」を出す。
+  // 自分が送るときは、直前の受信一時表示が残っていても消す（active→waiting遷移で復活させない）。
+  clearReceivedMessage();
   appEl.dataset.state = 'active';
   if (sendingHoldTimer !== undefined) window.clearTimeout(sendingHoldTimer);
   sendingHoldTimer = window.setTimeout(() => {
@@ -922,6 +1007,8 @@ async function init(): Promise<void> {
           trackEvent('signal_received');
           audioManager.playPon();
           flashNewSignal();
+          // 待機中なら、この領域を約8秒間「ホシミル信号ヲ受信シマシタ」へ切り替える（表示のみ）。
+          showReceivedMessage();
         },
       },
     );
@@ -947,7 +1034,8 @@ async function init(): Promise<void> {
 
 restoreSignalState();
 
-// 状態表示の初期描画（「—人」、および復元で送信済みなら「あなたが受信したホシミル信号　0」）。
+// 状態表示の初期描画（「—人」、および sessionStorage から復元した受信累計。
+// 未送信かつ累計0のときは「この空で受信したホシミル信号」行は出さない）。
 renderWatchingCount();
 renderReceivedSince();
 
@@ -967,11 +1055,13 @@ if (new URLSearchParams(window.location.search).get('debug') === '1') {
         audioManager.unlock();
         audioManager.playPon();
         flashNewSignal();
+        showReceivedMessage();
       },
       // 疑似送信（自分を watcher 化）：Firebase書き込みは行わず、ローカルの状態だけ更新する。
       simulateSend: () => {
         audioManager.unlock();
         isCountingSinceSend = true;
+        hasEverSent = true;
         resetReceivedSignals();
         renderWatchingCount();
       },
@@ -988,17 +1078,28 @@ if (new URLSearchParams(window.location.search).get('debug') === '1') {
         debugWatcherOffset += delta;
         renderWatchingCount();
       },
+      // 6時間セッション境界の初期化だけを実行。受信累計(receivedTotalOnPage)は維持されるはず。
+      simulateSessionReset: () => {
+        resetToFirstSignalState();
+      },
       reset: () => {
         isCountingSinceSend = false;
+        hasEverSent = false;
         debugConnectedOffset = 0;
         debugWatcherOffset = 0;
+        // debug のリセットだけは、確認用に閲覧セッションの受信累計も 0 に戻す
+        // （本番の再送・6時間境界・リロードでは戻さない）。
+        receivedTotalOnPage = 0;
+        clearReceivedTotal();
         resetReceivedSignals();
+        renderReceivedSince();
         renderWatchingCount();
       },
       getState: () => {
         const growth = lineGrowthFactor(receivedSignalCount);
         return {
           receivedSignalCount,
+          receivedTotalOnPage,
           lineGrowthFactor: growth,
           steadyStrength: steadyLineStrength(growth),
           envFrequency: waveEnvFrequency(receivedSignalCount, growth),

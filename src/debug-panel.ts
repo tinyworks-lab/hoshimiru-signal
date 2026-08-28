@@ -11,11 +11,14 @@ export interface DebugPanelHandlers {
   bumpConnected: (delta: number) => void;
   /** 疑似 watcher（送信済みの他者）の増減。人数表示にだけ効く */
   bumpWatcher: (delta: number) => void;
+  /** 6時間セッション境界の初期化処理（resetToFirstSignalState）だけを走らせる。受信累計は維持される想定 */
+  simulateSessionReset: () => void;
   /** カウント停止・疑似オフセット解除・線を初期状態へ */
   reset: () => void;
   /** 現在の内部状態を読み出す */
   getState: () => {
     receivedSignalCount: number;
+    receivedTotalOnPage: number;
     lineGrowthFactor: number;
     steadyStrength: number;
     envFrequency: number;
@@ -88,6 +91,7 @@ export function mountDebugPanel(handlers: DebugPanelHandlers): void {
     makeButton('通りすがい-1', () => handlers.bumpConnected(-1)),
     makeButton('watcher+1', () => handlers.bumpWatcher(1)),
     makeButton('watcher-1', () => handlers.bumpWatcher(-1)),
+    makeButton('セッション境界', () => handlers.simulateSessionReset()),
     makeButton('リセット', () => handlers.reset()),
     readout,
   );
@@ -97,7 +101,7 @@ export function mountDebugPanel(handlers: DebugPanelHandlers): void {
     const connected = state.connected === null ? '—' : String(state.connected);
     readout.textContent =
       `connected: ${connected}　watchers: ${state.watchers}　selfSent: ${state.selfSent ? 'yes' : 'no'}` +
-      `　sinceSend: ${state.receivedSignalCount}　growth: ${state.lineGrowthFactor.toFixed(3)}` +
+      `　total: ${state.receivedTotalOnPage}　sinceSend: ${state.receivedSignalCount}　growth: ${state.lineGrowthFactor.toFixed(3)}` +
       `　steady: ${state.steadyStrength.toFixed(3)}　env: ${state.envFrequency.toFixed(2)}` +
       `　span: ${state.spanScale.toFixed(2)}`;
   }
