@@ -24,7 +24,8 @@ body {
   justify-content: center;
   gap: 2.25rem;
   padding: 2rem;
-  padding-bottom: 7.5rem;
+  /* 下部固定の footer-note ぶんの余白。footer の行数に合わせる。 */
+  padding-bottom: 6.25rem;
   text-align: center;
 }
 
@@ -142,21 +143,56 @@ body {
 */
 .signal-line {
   fill: none;
-  stroke: rgba(215, 222, 240, 0.55);
-  stroke-width: 1;
+  /*
+    累積受信数に応じて線が少しずつ育つ。--line-strength(0〜1)をJSが動かし、
+    太さ・明るさ・発光感がまとめて連動する。0のときは従来と同じ淡い直線。
+  */
+  stroke: rgba(215, 222, 240, calc(0.55 + var(--line-strength, 0) * 0.4));
+  stroke-width: calc(1px + var(--line-strength, 0) * 2px);
   stroke-linecap: round;
   stroke-linejoin: round;
-  filter: none;
-  /* 発光が消えるときはゆっくり(約1秒)。点灯する瞬間は.is-pulsing側の速い設定が使われる。 */
-  transition: stroke 1s ease, stroke-width 1s ease, filter 1s ease;
+  /*
+    発光は2層。
+    近い層(--line-strength)は線本体の明るさに連動する基本の発光。常に白のまま。
+    遠い層(--glow-spread)は10件以降だけ現れる、周囲へ広がる淡いハロー。
+    --glow-blue は12件→30件で 0→1 になり、この遠い層の色だけを
+    白 → 夜空/月光のような淡い青白色へ寄せる（rgb(168,212,255)付近）。線本体は白のまま。
+  */
+  filter:
+    drop-shadow(
+      0 0 calc(var(--line-strength, 0) * 6.5px)
+      rgba(222, 228, 244, calc(var(--line-strength, 0) * 0.5))
+    )
+    drop-shadow(
+      0 0 calc(7px + var(--glow-spread, 0) * 16px)
+      rgb(
+        calc(223 - var(--glow-blue, 0) * 55)
+        calc(230 - var(--glow-blue, 0) * 18)
+        calc(246 + var(--glow-blue, 0) * 9)
+        / calc(var(--glow-spread, 0) * 0.3)
+      )
+    );
+  /*
+    発光や強さが引くときはゆっくり。--line-settle は累積受信数が増えるほど長くなり、
+    受信後の余韻が伸びる。点灯する瞬間は.is-pulsing側の速い設定が使われる。
+  */
+  transition-property: stroke, stroke-width, filter;
+  transition-timing-function: ease;
+  transition-duration: var(--line-settle, 1s);
 }
 
-/* 新しいuidによる本当の受信信号だけ、線全体に一瞬「電気が通った」ような発光を与える */
+/* 受信の瞬間だけ、平常の落ち着き先より強い強度へ一気に立ち上げる（速いトランジション） */
 .signal-line.is-pulsing {
-  stroke: #eef1fa;
-  stroke-width: 1.6;
-  filter: drop-shadow(0 0 3px rgba(227, 232, 245, 0.6));
-  transition: stroke 0.15s ease, stroke-width 0.15s ease, filter 0.15s ease;
+  transition-duration: 0.15s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signal-line {
+    transition-duration: 0.2s;
+  }
+  .signal-line.is-pulsing {
+    transition-duration: 0.1s;
+  }
 }
 
 /*
@@ -189,68 +225,103 @@ body {
 }
 
 /*
-  受信人数の表示。ページ読み込み直後から常時表示し、
-  1行・2行どちらの文言でも高さが変わらないよう固定する。
+  線とフッターの間の、静かな状態表示。ダッシュボード的に見せない。
+  1行目=接続人数、2行目=自分が送ってから届いた信号数。
+  min-height で常に3行分（1行目＋2行目のリード＋本文）を確保し、
+  送信前後や数字の変化でレイアウトが動かないようにする。
 */
-.count {
+.status-readout {
   margin: 0;
   width: 100%;
-  max-width: 300px;
-  height: 3.6rem;
+  max-width: 320px;
+  min-height: 5rem;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #7d8bb3;
-  font-size: 0.9rem;
-  line-height: 1.8;
-  /* テキスト切り替え時のクロスフェード（戻り＝フェードイン側）。レイアウトには影響しない。 */
-  transition: opacity 0.25s ease;
-}
-
-/*
-  文字列を更新する直前だけ付くクラス。先にここまでopacityを下げ、
-  見えない状態になってからJS側が文字列を差し替える（1フレーム古い体裁が残るのを防ぐ）。
-*/
-.count.is-swapping {
-  opacity: 0;
-  transition-duration: 0.15s;
-}
-
-/* テキスト本体。1行/2行/受信演出のどの文言でも親(.count)の高さ3.6remは変化しない。 */
-.count-text {
-  display: block;
+  gap: 0.7rem;
   text-align: center;
 }
 
-/*
-  「ホシミル信号　N人受信」のときだけ付くクラス。今この瞬間のリアルタイムな信号であることを
-  示すための、呼吸のようなごくゆっくりした明滅。色は変えずopacityだけを 0.65↔1.0 で往復する。
-  完全には消さない。0人表示と受信演出中(is-live無し)には適用しない。
-  クロスフェードは親(.count)のopacityで行うため、呼吸用opacityと競合しない。
-*/
-.count-text.is-live {
-  animation: count-breathe 5s ease-in-out infinite;
+.readout-line {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.7;
+  letter-spacing: 0.06em;
+  /* 現在の本文より少し控えめ */
+  color: #6b7699;
 }
 
-@keyframes count-breathe {
-  0%,
-  100% {
-    opacity: 0.65;
-  }
-  50% {
-    opacity: 1;
-  }
+/* 「○人」「○」の数字だけ、ほんの少しだけ存在感を持たせる */
+.readout-number {
+  color: #aab4d4;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  /* 色は ping 用にゆっくり。 */
+  transition: color 0.35s ease;
+}
+
+.watching-main,
+.watching-sub {
+  display: block;
+}
+
+/*
+  1行目（人数 or 独り占め文）の切り替え時だけ、opacity を軽く落として差し替える。
+  行の高さは常に「2行分」確保されるため、独り占め表示に切り替わっても縦位置は動かない。
+*/
+.readout-watching {
+  transition: opacity 0.16s ease;
+}
+
+.readout-watching.is-changing {
+  opacity: 0.08;
+}
+
+/* 独り占め時の1行目は、通常の人数表示より少し静かな色にする */
+.readout-watching.is-solo .watching-main {
+  color: #5f6a8c;
+}
+
+/*
+  「夜空を独り占めしてください」。通常時は不可視だが高さは常に確保する。
+  独り占めに入ったときだけ、さらに淡い色でゆっくりフェードインする。
+*/
+.watching-sub {
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.09em;
+  color: #525c7d;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.watching-sub.is-visible {
+  opacity: 1;
+}
+
+/*
+  送信前は不可視（ただし高さは確保）。送信後に静かにフェードインする。
+*/
+.readout-received {
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+.readout-received.is-visible {
+  opacity: 1;
+}
+
+/* 信号を受信した瞬間だけ、ごく短く数字が少し明るくなる（派手なカウンター演出はしない） */
+.readout-received.is-pinged .readout-number {
+  color: #d3dbf1;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .count-text.is-live {
-    animation: none;
-  }
-  /* 長いクロスフェードは行わず、ごく短いopacity切り替えにとどめる。 */
-  .count,
-  .count.is-swapping {
-    transition-duration: 0.08s;
+  .readout-watching,
+  .watching-sub,
+  .readout-received {
+    transition-duration: 0.09s;
   }
 }
 

@@ -1,5 +1,16 @@
 import { signInAnonymously } from 'firebase/auth';
-import { get, onChildAdded, onDisconnect, onValue, push, ref, remove, serverTimestamp, set } from 'firebase/database';
+import {
+  get,
+  onChildAdded,
+  onDisconnect,
+  onValue,
+  push,
+  ref,
+  remove,
+  serverTimestamp,
+  set,
+  update,
+} from 'firebase/database';
 import { auth, db } from './firebase';
 
 // presenceに参加している間、この間隔で自分の接続のlastSeenをサーバー時刻に更新する。
@@ -7,9 +18,17 @@ const HEARTBEAT_INTERVAL_MS = 30000;
 // lastSeenがサーバー現在時刻からこれ以上古い接続は「異常に残ったゴースト」とみなし、人数から除外する。
 const PRESENCE_INACTIVE_MS = 90000;
 
+/** presence 集計結果。いずれも「自分以外」の人数。自分ぶんは表示側でローカル状態から加算する。 */
+export interface PresenceSnapshot {
+  /** 現在ページに接続しているだけの人も含む、自分以外のuid数（「予感」に使う）。 */
+  connectedOthers: number;
+  /** そのうち、実際に信号を送った（sent=true の接続を持つ）自分以外のuid数（人数表示に使う）。 */
+  watchersOthers: number;
+}
+
 export interface PresenceCallbacks {
-  /** 自分以外でpresenceに存在するuidの数が変化するたびに呼ばれる */
-  onCountChange: (count: number) => void;
+  /** presence（接続数 / 送信済み数）が変化するたびに呼ばれる。 */
+  onPresenceChange: (snapshot: PresenceSnapshot) => void;
 }
 
 export interface SignalCallbacks {
@@ -19,10 +38,14 @@ export interface SignalCallbacks {
 
 export interface HoshimiruWatcher {
   /**
-   * 最初に「信号ヲ送ル」が押されたときに呼ぶ。自分の接続をpresenceへ書き込み、参加者になる。
-   * 2回目以降は何もせず、実際に参加した場合はtrue、既に参加済みで何もしなかった場合はfalseを返す。
+   * ページ接続時に一度だけ呼ぶ。自分の接続を presence へ sent:false（通りすがい）として登録する。
+   * 2回目以降は何もしない。
    */
-  join: () => boolean;
+  join: () => void;
+  /** 「信号ヲ送ル」を押したとき／復元で送信済み扱いのときに呼ぶ。自分の接続を sent:true にする。 */
+  markSent: () => void;
+  /** 6時間セッション境界で送信前状態へ戻すときに呼ぶ。自分の接続を sent:false へ戻す。 */
+  markUnsent: () => void;
   /** 「信号ヲ送ル」/「モウイチド信号ヲ送ル」を押すたびに呼ぶ。/signalsへ新しいイベントを1件書き込む。 */
   sendSignal: () => void;
 }
@@ -33,7 +56,7 @@ const SIGNAL_CLEANUP_DELAY_MS = 20000;
 
 /**
  * ページ読み込み時に呼ぶ。匿名認証を行い、
- * - presence（現在人数の把握だけに使う）
+ * - presence（接続数と、そのうち信号を送った人数の把握に使う）
  * - signals（「本当にホシミル信号が送られた」という瞬間的なイベントだけに使う）
  * の両方の監視を開始する。この時点では自分はpresenceにもsignalsにも書き込まない。
  */
@@ -61,18 +84,30 @@ export async function watchHoshimiruSignal(
     return serverNow() - lastSeen < PRESENCE_INACTIVE_MS;
   }
 
-  // --- presence: 「今このページで空を見ている人」の現在人数だけを把握する ---
+  // その接続が「信号を送った人」の接続か（sent === true か）。
+  function isSentConnection(connectionValue: unknown): boolean {
+    return (
+      !!connectionValue &&
+      typeof connectionValue === 'object' &&
+      (connectionValue as { sent?: unknown }).sent === true
+    );
+  }
+
+  // --- presence: 「今このページに接続している人」と「そのうち信号を送った人」を数える ---
   const presenceRef = ref(db, 'presence');
   onValue(presenceRef, (snapshot) => {
     const raw = (snapshot.val() ?? {}) as Record<string, Record<string, unknown> | null>;
-    let count = 0;
+    let connectedOthers = 0;
+    let watchersOthers = 0;
     for (const [uid, connections] of Object.entries(raw)) {
-      if (uid === myUid) continue; // 自分自身は受信人数から除外
+      if (uid === myUid) continue; // 自分自身は集計から除外（表示側でローカル状態から加算）
       if (!connections || typeof connections !== 'object') continue;
-      // 同一uid配下に90秒以内の接続が1つでもあれば1人。すべて古ければ数えない（複数タブは1人のまま）。
-      if (Object.values(connections).some(isConnectionActive)) count += 1;
+      const activeConnections = Object.values(connections).filter(isConnectionActive);
+      if (activeConnections.length === 0) continue; // 90秒以内の接続が1つも無ければ数えない
+      connectedOthers += 1;
+      if (activeConnections.some(isSentConnection)) watchersOthers += 1;
     }
-    presenceCallbacks.onCountChange(count);
+    presenceCallbacks.onPresenceChange({ connectedOthers, watchersOthers });
   });
 
   // --- signals: 「誰かが今、ホシミル信号を送った」という瞬間的なイベントだけを監視する ---
@@ -108,6 +143,8 @@ export async function watchHoshimiruSignal(
   let hasJoinedPresence = false;
   let myConnectionRef: ReturnType<typeof push> | null = null;
   let heartbeatTimer: number | undefined;
+  // 自分の接続の sent 状態（true=信号送信済み）。heartbeat / 再接続時の書き込みで維持する。
+  let mySent = false;
 
   // 自分のuid配下だけを走査し、今の接続以外で古くなった（またはlastSeenを持たない）
   // ゴースト接続を削除する。他人のuid配下には一切触れない（Security Rules上も書けない）。
@@ -126,8 +163,8 @@ export async function watchHoshimiruSignal(
       });
   }
 
-  function join(): boolean {
-    if (hasJoinedPresence) return false;
+  function join(): void {
+    if (hasJoinedPresence) return;
     hasJoinedPresence = true;
 
     // 接続状態を監視し、(再)接続のたびに自分の接続を presence/{uid}/{connectionId} として登録する。
@@ -142,23 +179,35 @@ export async function watchHoshimiruSignal(
       onDisconnect(connectionRef)
         .remove()
         .then(() => {
-          // 値は {lastSeen: サーバー時刻}。端末の時計には依存しない。
-          set(connectionRef, { lastSeen: serverTimestamp() });
+          // 値は {lastSeen: サーバー時刻, sent: 送信済みか}。端末の時計には依存しない。
+          set(connectionRef, { lastSeen: serverTimestamp(), sent: mySent });
           cleanupMyStaleConnections(connectionRef.key);
         });
     });
 
-    // heartbeat: 参加中は一定間隔でlastSeenをサーバー時刻へ更新し続ける。
+    // heartbeat: 参加中は一定間隔でlastSeenをサーバー時刻へ更新し続ける（sent状態は維持）。
     // onDisconnectで消えなかったゴーストは、更新が止まって90秒経てば人数から外れる。
     if (heartbeatTimer === undefined) {
       heartbeatTimer = window.setInterval(() => {
         if (myConnectionRef) {
-          set(myConnectionRef, { lastSeen: serverTimestamp() }).catch(() => {});
+          set(myConnectionRef, { lastSeen: serverTimestamp(), sent: mySent }).catch(() => {});
         }
       }, HEARTBEAT_INTERVAL_MS);
     }
+  }
 
-    return true;
+  function markSent(): void {
+    mySent = true;
+    if (myConnectionRef) {
+      update(myConnectionRef, { sent: true, lastSeen: serverTimestamp() }).catch(() => {});
+    }
+  }
+
+  function markUnsent(): void {
+    mySent = false;
+    if (myConnectionRef) {
+      update(myConnectionRef, { sent: false, lastSeen: serverTimestamp() }).catch(() => {});
+    }
   }
 
   function sendSignal(): void {
@@ -176,5 +225,5 @@ export async function watchHoshimiruSignal(
     }, SIGNAL_CLEANUP_DELAY_MS);
   }
 
-  return { join, sendSignal };
+  return { join, markSent, markUnsent, sendSignal };
 }

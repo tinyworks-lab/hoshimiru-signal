@@ -46,14 +46,25 @@
       </div>
 
       <!--
-        .count(親)はレイアウト固定＋テキスト切り替え用のクロスフェードを担当し、
-        .count-text(内側span)は「N人受信」時の呼吸アニメーションを担当する。
-        切り替え用opacityと呼吸用opacityを別要素に分けることで両者が競合しない。
+        線とフッターの間の静かな状態表示。
+        1行目: いま接続している人数（presence他者数 + 自分。未確定時は「—人」）。
+        2行目: 自分が信号を送ってから届いた他者信号の数（送信前は opacity:0 で不可視、
+        ただし高さは常に確保してレイアウトを動かさない）。
+        数字の変化はいずれも opacity のフェードのみで、要素の出し入れはしない。
       -->
-      <p id="count-display" class="count"><span id="count-text" class="count-text"></span></p>
+      <div id="status-readout" class="status-readout">
+        <p id="readout-watching" class="readout-line readout-watching">
+          <span id="watching-main" class="watching-main"
+            >今、空を見ている　<span class="readout-number">—</span>人</span
+          >
+          <span id="watching-sub" class="watching-sub">夜空を独り占めしてください</span>
+        </p>
+        <p id="readout-received" class="readout-line readout-received">
+          あなたが受信したホシミル信号　<span id="readout-received-body" class="readout-number">0</span>
+        </p>
+      </div>
 
       <div id="footer-note" class="footer-note">
-        <p class="footer-line">イヤホンをつけて、信号を待つ。</p>
         <p class="footer-line sound-note">
           信号の送受信音が出ます
           <button id="mute-button" type="button" class="mute-button" aria-pressed="false">音 ON</button>
