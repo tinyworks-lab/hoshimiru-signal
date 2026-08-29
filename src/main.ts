@@ -194,7 +194,7 @@ function watchingHeadcount(): number {
 // opacity フェードを挟んで差し替える。行の高さは常に2行分確保されるため縦位置は動かない。
 //
 //   pending    : presence未確定                     → 「今、空を見ている　—人」
-//   solo-unsent: 自分未送信 かつ watcher 0（A）      → 「夜空を独り占めしてください」
+//   solo-unsent: 自分未送信 かつ watcher 0（A）      → 「まだ誰もいません」
 //   solo-sent  : 自分送信済み かつ 他者watcher 0（B） → 「今、この空を…あなただけ」＋副文
 //   n:N        : それ以外（C／他者1人）             → 「今、空を見ている　N人」
 function renderWatchingCount(): void {
@@ -218,7 +218,7 @@ function renderWatchingCount(): void {
       watchingSubEl.classList.remove('is-visible');
       watchingLineEl.classList.remove('is-solo');
     } else if (key === 'solo-unsent') {
-      watchingMainEl.textContent = '夜空を独り占めしてください';
+      watchingMainEl.textContent = 'まだ誰もいません';
       watchingSubEl.classList.remove('is-visible');
       watchingLineEl.classList.add('is-solo');
     } else if (key === 'solo-sent') {
