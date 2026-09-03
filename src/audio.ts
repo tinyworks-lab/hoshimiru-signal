@@ -23,7 +23,15 @@ export class AudioManager {
 
   /** ユーザー操作（ボタンクリック）のハンドラ内で呼ぶこと。 */
   unlock(): void {
-    if (this.ctx) return;
+    if (this.ctx) {
+      // 長い待機（再送信までの8分19秒など）でブラウザが省電力のためAudioContextを
+      // 自動的にsuspendしていることがある。ユーザー操作のタイミングで再開しておかないと、
+      // 以降の受信音・送信音が(エラーなく)無音のまま鳴らなくなる。
+      if (this.ctx.state === 'suspended') {
+        void this.ctx.resume();
+      }
+      return;
+    }
 
     this.ctx = new AudioContext();
 
