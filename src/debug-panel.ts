@@ -9,6 +9,8 @@ export interface DebugPanelHandlers {
   simulateSend: () => void;
   /** 「通りすがい」（接続だけの他者）の疑似増減。増えたら「予感」が出る */
   bumpConnected: (delta: number) => void;
+  /** 予感音（short:短い「ザッ／ザーッ」/B:「ザッ……ザザーーー…ブツッ」）を視覚演出なしで直接鳴らす動作確認用 */
+  testPremonitionSound: (kind: 'short' | 'B') => void;
   /** 疑似 watcher（送信済みの他者）の増減。人数表示にだけ効く */
   bumpWatcher: (delta: number) => void;
   /** 6時間セッション境界の初期化処理（resetToFirstSignalState）だけを走らせる。受信累計は維持される想定 */
@@ -89,6 +91,8 @@ export function mountDebugPanel(handlers: DebugPanelHandlers): void {
     makeButton('30件受信', () => burstReceive(handlers, 30, 90)),
     makeButton('通りすがい+1', () => handlers.bumpConnected(1)),
     makeButton('通りすがい-1', () => handlers.bumpConnected(-1)),
+    makeButton('予感音（短）', () => handlers.testPremonitionSound('short')),
+    makeButton('予感音B', () => handlers.testPremonitionSound('B')),
     makeButton('watcher+1', () => handlers.bumpWatcher(1)),
     makeButton('watcher-1', () => handlers.bumpWatcher(-1)),
     makeButton('セッション境界', () => handlers.simulateSessionReset()),

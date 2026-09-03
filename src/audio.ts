@@ -7,6 +7,112 @@ const PREMONITION_SOUND_COOLDOWN_MS = 1800;
 // 受信音（ポーン）の直後この時間は、予感音を鳴らさない（重なり回避）。
 const RECEIVE_TONE_GUARD_MS = 600;
 
+// 予感音のバリエーション。「短い(single)」と「B(twoPart、ザッ……ザザーーー…ブツッ)」の
+// 2種類だけを用意し、毎回どちらかをランダムに選ぶ（機械的な繰り返し感の軽減）。
+// どちらも素材は同じホワイトノイズで、フィルタは低域カット(highpass)と高域を丸める
+// ゆるいlowpassだけ（bandpassのような強い加工・共振はしない）。末尾はどちらも自然な
+// フェードアウトではなく、ごく短いlinearRampで急にゲインを落とす「ブツッ」で終える。
+interface PremonitionSingleFlavor {
+  key: 'short';
+  kind: 'single';
+  durationMin: number; // 全体の長さ(秒)
+  durationMax: number;
+  attackMin: number; // 立ち上がり時間(秒)
+  attackMax: number;
+  wobbleCountMin: number; // 本体でgainがゆるやかに揺らぐ回数（0でもよい＝ごく短いので必須ではない）
+  wobbleCountMax: number;
+  lowCutMin: number;
+  lowCutMax: number;
+  highCutMin: number;
+  highCutMax: number;
+  peakMin: number;
+  peakMax: number;
+}
+
+interface PremonitionTwoPartFlavor {
+  key: 'B';
+  kind: 'twoPart';
+  totalDurationMin: number; // 全体の長さ(秒)。part2Durationはここから逆算する。
+  totalDurationMax: number;
+  part1DurationMin: number; // 最初の「ザッ」の長さ(秒。立ち上がり込み)
+  part1DurationMax: number;
+  part1AttackMin: number; // 「ザッ」の立ち上がり時間(秒)
+  part1AttackMax: number;
+  gapDurationMin: number; // 「ザッ」のあとのごく短い間(秒)
+  gapDurationMax: number;
+  part2AttackMin: number; // 「ザザー」が遠くから入ってくるような立ち上がり時間(秒)
+  part2AttackMax: number;
+  wobbleCountMin: number; // 「ザザー」本体でgainがゆるやかに揺らぐ回数
+  wobbleCountMax: number;
+  lowCutMin: number;
+  lowCutMax: number;
+  highCutMin: number;
+  highCutMax: number;
+  part1PeakMin: number; // 「ザッ」の音量（少しだけ認識しやすく）
+  part1PeakMax: number;
+  part2PeakMin: number; // 「ザザー」の音量（part1より控えめ、遠くに消えていく感じ）
+  part2PeakMax: number;
+}
+
+type PremonitionFlavor = PremonitionSingleFlavor | PremonitionTwoPartFlavor;
+
+const PREMONITION_FLAVORS: PremonitionFlavor[] = [
+  // short: 短い「ザッ」または短い「ザーッ」。Bと同じ音質・世界観のまま、明らかに短く軽い。
+  {
+    key: 'short',
+    kind: 'single',
+    durationMin: 0.2,
+    durationMax: 0.4,
+    attackMin: 0.02,
+    attackMax: 0.035,
+    wobbleCountMin: 0,
+    wobbleCountMax: 1,
+    lowCutMin: 450,
+    lowCutMax: 650,
+    highCutMin: 5500,
+    highCutMax: 7000,
+    peakMin: 0.07,
+    peakMax: 0.1,
+  },
+  // B: 「ザッ……ザザーーー…」全体およそ1.45〜1.65秒。現在の仕様のまま変更しない。
+  {
+    key: 'B',
+    kind: 'twoPart',
+    totalDurationMin: 1.45,
+    totalDurationMax: 1.65,
+    part1DurationMin: 0.1,
+    part1DurationMax: 0.2,
+    part1AttackMin: 0.02,
+    part1AttackMax: 0.035,
+    gapDurationMin: 0.08,
+    gapDurationMax: 0.2,
+    part2AttackMin: 0.04,
+    part2AttackMax: 0.07,
+    wobbleCountMin: 3,
+    wobbleCountMax: 5,
+    lowCutMin: 450,
+    lowCutMax: 650,
+    highCutMin: 5500,
+    highCutMax: 7000,
+    part1PeakMin: 0.08,
+    part1PeakMax: 0.12,
+    part2PeakMin: 0.035,
+    part2PeakMax: 0.05,
+  },
+];
+
+// 予感音用ホワイトノイズ素材の長さ(秒)。Bパターンの最大長(約1.65秒)より
+// 十分に余裕を持たせ、ランダムな再生開始位置をずらしても素材が尽きないようにする。
+const PREMONITION_NOISE_BUFFER_SECONDS = 2.0;
+
+// 末尾の「ブツッ」: 自然にフェードアウトさせるのではなく、最後のこの長さ(秒)だけ
+// 急にgainを落とし、無線が突然切れたような終わり方を演出する。0へ瞬間移動させる
+// わけではなく、この短いlinearRampの間だけで落とすことでクリック事故を避ける。両flavor共通。
+const PREMONITION_CUT_DURATION_MIN = 0.02;
+const PREMONITION_CUT_DURATION_MAX = 0.05;
+// 「間」や「ブツッ」到達後に経由する、無音ではないごく低いレベル。
+const PREMONITION_VALLEY_LEVEL = 0.0006;
+
 export class AudioManager {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
@@ -165,10 +271,12 @@ export class AudioManager {
     this.playPianoTone(830.61, 0.17, 0.42); // G#5 / A♭5
   }
 
-  // 予感音用のホワイトノイズ素材（0.4秒）。一度だけ合成して使い回す。
+  // 予感音用のホワイトノイズ素材。一度だけ合成して使い回す。
+  // PREMONITION_NOISE_BUFFER_SECONDS ぶんの長さを持たせ、再生開始位置をランダムにずらしても
+  // Bパターン（最大約1.65秒）まで余裕を持って足りるようにしている。
   private getNoiseBuffer(ctx: AudioContext): AudioBuffer {
     if (this.noiseBuffer) return this.noiseBuffer;
-    const length = Math.floor(ctx.sampleRate * 0.4);
+    const length = Math.floor(ctx.sampleRate * PREMONITION_NOISE_BUFFER_SECONDS);
     const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
     const data = buffer.getChannelData(0);
     for (let i = 0; i < length; i += 1) data[i] = Math.random() * 2 - 1;
@@ -190,74 +298,189 @@ export class AudioManager {
   }
 
   /**
-   * 「予感」（通りすがりの人が新しく接続した気配）のときに鳴らす、短く小さな乾いた二段ノイズ（ザザッ）。
-   * 通知音ではなく「今、何か聞こえた？」程度。Web Audio でその場で合成する（音源ファイル不要）。
+   * 「予感」（通りすがりの人が新しく接続した気配）のときに鳴らすホワイトノイズ。
+   * 通知音ではなく「今、何か聞こえた？」程度。受信音（ポーン）とは明確に区別し、
+   * 音量・持続時間ともにポーンより十分控えめに保つ。Web Audio でその場で合成する
+   * （音源ファイル不要）。加工は低域カットと高域を丸めるゆるいlowpassだけで、bandpassのような
+   * 強い色付けはせず素のノイズ感を残す。末尾は自然にフェードアウトさせず、ごく短いlinearRampで
+   * 急にゲインを落として「ブツッ」と無線が切れたように終える。途中はクリック音のような
+   * 鋭いピークの連打にはしない。
    *
-   * 次の場合は何もしない（エラー・ダイアログ・案内は一切出さない）:
+   * 本番の呼び出し（引数なし）では、毎回 PREMONITION_FLAVORS の
+   * short（単発、全体約0.2〜0.4秒の短い「ザッ／ザーッ」）と
+   * B（2段構成、全体約1.45〜1.65秒の「ザッ……ザザーーー…ブツッ」）からランダムに1つを選ぶ
+   * （常に同じ音に聞こえないようにするため）。
+   * forcedFlavorKey にキーを渡すと、デバッグパネルからの動作確認用にその種類を強制的に鳴らせる
+   * （その場合はガード・クールダウンの状態を消費しない＝本番の抑制タイミングに影響しない）。
+   *
+   * 次の場合は何もしない（エラー・ダイアログ・案内は一切出さない。デバッグ強制時も対象）:
    *   - AudioContext がまだ unlock されていない（＝ユーザー操作前）
    *   - AudioContext が running でない
+   * 加えて本番の呼び出し（forcedFlavorKeyなし）でのみ、以下でも鳴らさない:
    *   - 直前に受信音（ポーン）が鳴った（重なり回避。ポーンが最優先）
    *   - クールダウン中（連続アクセスで鳴りっぱなしにしない。視覚の予感は別途出る）
    * ミュートは masterGain 経由で自動的に効く（seGain へ接続するため）。
    */
-  playPremonitionNoise(): void {
+  playPremonitionNoise(forcedFlavorKey?: 'short' | 'B'): void {
     if (!this.ctx || !this.seGain) return;
     if (this.ctx.state !== 'running') return;
 
-    const nowMs = performance.now();
-    if (nowMs - this.lastReceiveToneAt < RECEIVE_TONE_GUARD_MS) return;
-    if (nowMs - this.lastPremonitionAt < PREMONITION_SOUND_COOLDOWN_MS) return;
-    this.lastPremonitionAt = nowMs;
+    const isDebugForced = forcedFlavorKey !== undefined;
+    if (!isDebugForced) {
+      const nowMs = performance.now();
+      if (nowMs - this.lastReceiveToneAt < RECEIVE_TONE_GUARD_MS) return;
+      if (nowMs - this.lastPremonitionAt < PREMONITION_SOUND_COOLDOWN_MS) return;
+      this.lastPremonitionAt = nowMs;
+    }
 
     const ctx = this.ctx;
     const t = ctx.currentTime;
 
-    // 予感ごとに、開始時だけ少しずつ変える（毎回同じSEに聞こえないように）。
-    // ただしキャラクターは常に「ザザッ」系＝bandpass寄り・二段のノイズ。
-    const bright = Math.random() < 0.28; // true のときだけ少し明るめ（highpass）
-    const centerHz = bright ? 1300 + Math.random() * 1000 : 950 + Math.random() * 1900;
-    const q = bright ? 0.7 : 1.6 + Math.random() * 2.4; // 高くしすぎない（ザラついた帯域感）
-    const peak1 = 0.13 + Math.random() * 0.07; // 1つ目のピーク（0.13〜0.20。ポーンよりは小さいが気づける）
-    const peak2 = peak1 * (0.6 + Math.random() * 0.2); // 2つ目は少し弱い
-    const dipRatio = 0.3 + Math.random() * 0.12; // 2つのピークの谷（無音にはしない＝連続して聞こえる）
+    const flavor = isDebugForced
+      ? PREMONITION_FLAVORS.find((f) => f.key === forcedFlavorKey)!
+      : PREMONITION_FLAVORS[Math.floor(Math.random() * PREMONITION_FLAVORS.length)];
 
-    const attack = 0.004 + Math.random() * 0.003; // 4〜7ms
-    const gap = 0.022 + Math.random() * 0.028; // 2つのピーク間隔 22〜50ms
-    const tail = 0.065 + Math.random() * 0.05; // 2つ目のあとの減衰 65〜115ms
-    const peak1Time = t + attack;
-    const dipTime = peak1Time + gap * 0.6;
-    const peak2Time = peak1Time + gap;
-    const endTime = peak2Time + tail; // 合計およそ 90〜185ms
+    if (flavor.kind === 'single') {
+      this.playPremonitionSingle(ctx, t, flavor);
+    } else {
+      this.playPremonitionTwoPart(ctx, t, flavor);
+    }
+  }
+
+  // short: 単発の短いノイズ（開く→[任意でごく短い揺らぎ]→末尾「ブツッ」）。
+  private playPremonitionSingle(ctx: AudioContext, t: number, flavor: PremonitionSingleFlavor): void {
+    const duration = flavor.durationMin + Math.random() * (flavor.durationMax - flavor.durationMin);
+    const attack = flavor.attackMin + Math.random() * (flavor.attackMax - flavor.attackMin);
+    const wobbleCount =
+      flavor.wobbleCountMin + Math.floor(Math.random() * (flavor.wobbleCountMax - flavor.wobbleCountMin + 1));
+    const peak = flavor.peakMin + Math.random() * (flavor.peakMax - flavor.peakMin);
+    const lowCutHz = flavor.lowCutMin + Math.random() * (flavor.lowCutMax - flavor.lowCutMin);
+    const highCutHz = flavor.highCutMin + Math.random() * (flavor.highCutMax - flavor.highCutMin);
+
+    const attackTime = t + attack;
+    const endTime = t + duration;
+    const cutDuration =
+      PREMONITION_CUT_DURATION_MIN + Math.random() * (PREMONITION_CUT_DURATION_MAX - PREMONITION_CUT_DURATION_MIN);
+    const cutStartTime = endTime - cutDuration;
+    const wobbleSpan = Math.max(cutStartTime - attackTime, 0.01);
+
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.linearRampToValueAtTime(peak, attackTime); // ノイズが「開く」
+
+    if (wobbleCount > 0) {
+      const wobbleStep = wobbleSpan / wobbleCount;
+      let time = attackTime;
+      for (let i = 0; i < wobbleCount; i += 1) {
+        time += wobbleStep;
+        const level = peak * (0.7 + Math.random() * 0.35); // ゆるやかな揺らぎ（谷は浅く保つ）
+        env.gain.linearRampToValueAtTime(level, time);
+      }
+    } else {
+      env.gain.linearRampToValueAtTime(peak, cutStartTime); // 揺らぎなし。カット直前まで保持。
+    }
+    // 「ブツッ」: 末尾cutDuration(20〜50ms)だけで谷レベルまで一気に落とす。
+    env.gain.linearRampToValueAtTime(PREMONITION_VALLEY_LEVEL, endTime);
+
+    this.startPremonitionSource(ctx, t, endTime, lowCutHz, highCutHz, env);
+  }
+
+  // B: 「ザッ（part1）→ごく短い間→ザザー（part2）→ブツッ」の2段構成。
+  private playPremonitionTwoPart(ctx: AudioContext, t: number, flavor: PremonitionTwoPartFlavor): void {
+    const totalDuration =
+      flavor.totalDurationMin + Math.random() * (flavor.totalDurationMax - flavor.totalDurationMin);
+    const part1Duration =
+      flavor.part1DurationMin + Math.random() * (flavor.part1DurationMax - flavor.part1DurationMin);
+    const part1Attack =
+      flavor.part1AttackMin + Math.random() * (flavor.part1AttackMax - flavor.part1AttackMin);
+    const gapDuration =
+      flavor.gapDurationMin + Math.random() * (flavor.gapDurationMax - flavor.gapDurationMin);
+    const part2Attack =
+      flavor.part2AttackMin + Math.random() * (flavor.part2AttackMax - flavor.part2AttackMin);
+    const wobbleCount =
+      flavor.wobbleCountMin + Math.floor(Math.random() * (flavor.wobbleCountMax - flavor.wobbleCountMin + 1));
+    const part1Peak = flavor.part1PeakMin + Math.random() * (flavor.part1PeakMax - flavor.part1PeakMin);
+    const part2Peak = flavor.part2PeakMin + Math.random() * (flavor.part2PeakMax - flavor.part2PeakMin);
+    const lowCutHz = flavor.lowCutMin + Math.random() * (flavor.lowCutMax - flavor.lowCutMin);
+    const highCutHz = flavor.highCutMin + Math.random() * (flavor.highCutMax - flavor.highCutMin);
+
+    // part2（ザザー）の長さは、全体の長さから「ザッ」と「間」を引いた残りとして決める
+    // （「全体およそ何秒」という長さをそのまま実現するため）。
+    const part2Duration = Math.max(totalDuration - part1Duration - gapDuration, 0.3);
+
+    const part1AttackTime = t + part1Attack;
+    const part1EndTime = t + part1Duration; // ここまでで「ザッ」を谷(ごく低いレベル)へ落とす
+    const gapEndTime = part1EndTime + gapDuration; // 「間」の終わり＝「ザザー」の立ち上がり開始
+    const part2AttackEndTime = gapEndTime + part2Attack;
+    const endTime = part1EndTime + gapDuration + part2Duration; // 全体の終わり
+
+    // part2の最後は自然にフェードアウトさせず、末尾のごく短い区間だけ急にgainを落として
+    // 「ブツッ」と無線が切れたような終わり方にする。wobbleはそれより前（まだ聞こえる状態）で終える。
+    const cutDuration =
+      PREMONITION_CUT_DURATION_MIN + Math.random() * (PREMONITION_CUT_DURATION_MAX - PREMONITION_CUT_DURATION_MIN);
+    const cutStartTime = endTime - cutDuration;
+    const wobbleSpan = Math.max(cutStartTime - part2AttackEndTime, 0.01);
+    // wobbleCount回でちょうどcutStartTimeに到達するようにする（＝カットの直前まで聞こえる状態を保ち、
+    // 「ブツッ」の急減衰(cutDuration)がその後の指定どおりの長さで独立して起こるようにするため）。
+    const wobbleStep = wobbleSpan / wobbleCount;
+
+    // 1本のgainエンベロープで「ザッ（part1）→ごく短い間→ザザー（part2）」を滑らかに繋ぐ。
+    // 谷(ごく低いレベル)を経由するだけで無音にはせず、全てlinearRampで繋ぐことで
+    // クリック音のような鋭いピークの連打を避ける。
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.linearRampToValueAtTime(part1Peak, part1AttackTime); // 「ザッ」が開く
+    env.gain.linearRampToValueAtTime(PREMONITION_VALLEY_LEVEL, part1EndTime); // 滑らかに落として間へ
+    env.gain.setValueAtTime(PREMONITION_VALLEY_LEVEL, gapEndTime); // ごく短い間
+    env.gain.linearRampToValueAtTime(part2Peak, part2AttackEndTime); // 「ザザー」が遠くから入ってくる
+    let time = part2AttackEndTime;
+    for (let i = 0; i < wobbleCount; i += 1) {
+      time += wobbleStep;
+      const level = part2Peak * (0.7 + Math.random() * 0.35); // ゆるやかな揺らぎ（谷は浅く保つ）
+      env.gain.linearRampToValueAtTime(level, time);
+    }
+    // 「ブツッ」: 末尾cutDuration(20〜50ms)だけで谷レベルまで一気に落とす。
+    env.gain.linearRampToValueAtTime(PREMONITION_VALLEY_LEVEL, endTime);
+
+    this.startPremonitionSource(ctx, t, endTime, lowCutHz, highCutHz, env);
+  }
+
+  // 予感音の再生元(ノイズソース＋フィルタ)を組み立てて鳴らす。envは呼び出し側で構築済み。
+  // 0への瞬間移動ではなく必ずlinearRamp等を経由させることでクリック事故を避けるのは
+  // envの構築側（呼び出し元）の責務。
+  private startPremonitionSource(
+    ctx: AudioContext,
+    t: number,
+    endTime: number,
+    lowCutHz: number,
+    highCutHz: number,
+    env: GainNode,
+  ): void {
+    if (!this.seGain) return;
 
     const source = ctx.createBufferSource();
     source.buffer = this.getNoiseBuffer(ctx);
-    source.playbackRate.value = 0.75 + Math.random() * 0.55; // ノイズの粒立ちを少し変える
+    // 再生速度は変えない（ホワイトノイズそのものの質感を保つため）。
+    // 毎回バッファ内の異なる位置から再生することで、同じ「録音」に聞こえないようにする。
+    const maxOffset = Math.max(PREMONITION_NOISE_BUFFER_SECONDS - (endTime - t) - 0.05, 0);
+    const offset = Math.random() * maxOffset;
 
-    // 低域を確実に落とす（「ドン」「ボッ」を避ける）。
+    // 低域のボワつきを軽く落とす（低音感・重さを減らしつつ、ホワイトノイズ感は残す）。
     const lowCut = ctx.createBiquadFilter();
     lowCut.type = 'highpass';
-    lowCut.frequency.value = 700;
+    lowCut.frequency.value = lowCutHz;
 
-    // 主フィルタ。bandpass = ザラついた「ザザッ」、highpass = 少し明るめ。
-    const shaper = ctx.createBiquadFilter();
-    shaper.type = bright ? 'highpass' : 'bandpass';
-    shaper.frequency.value = centerHz;
-    shaper.Q.value = q;
-
-    // gain エンベロープに2つの小さなピークを作る＝「ザザッ」の二段感。
-    const env = ctx.createGain();
-    env.gain.setValueAtTime(0.0001, t);
-    env.gain.linearRampToValueAtTime(peak1, peak1Time); // 1つ目
-    env.gain.exponentialRampToValueAtTime(peak1 * dipRatio, dipTime); // 谷（無音にしない）
-    env.gain.linearRampToValueAtTime(peak2, peak2Time); // 2つ目（少し弱い）
-    env.gain.exponentialRampToValueAtTime(0.0004, endTime); // その後すぐ減衰
+    // 高域が刺さらない範囲で少し明るめに残す、ゆるいローパス（bandpassのような強い加工はしない）。
+    const highCut = ctx.createBiquadFilter();
+    highCut.type = 'lowpass';
+    highCut.frequency.value = highCutHz;
 
     source.connect(lowCut);
-    lowCut.connect(shaper);
-    shaper.connect(env);
+    lowCut.connect(highCut);
+    highCut.connect(env);
     env.connect(this.seGain);
 
-    source.start(t);
+    source.start(t, offset);
     source.stop(endTime + 0.03);
 
     this.activePremonitionEnv = env;
@@ -266,7 +489,7 @@ export class AudioManager {
       try {
         source.disconnect();
         lowCut.disconnect();
-        shaper.disconnect();
+        highCut.disconnect();
         env.disconnect();
       } catch {
         // 既に切断済みでも問題ない

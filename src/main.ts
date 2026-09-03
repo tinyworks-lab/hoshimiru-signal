@@ -592,8 +592,8 @@ function showReceivedMessage(): void {
 //   ・横方向の漂い（ざわついた領域そのものが 20〜40px だけ横へ流れて消える）
 // 音・光点なし。受信数・線の累積成長(--line-strength)には一切触れない。
 // 波ではないので大きな山は作らない。受信中は出さない（受信波が線を所有する）。
-const PREMONITION_DURATION_MS = 1500;
-const PREMONITION_DURATION_REDUCED_MS = 900;
+const PREMONITION_DURATION_MS = 2200;
+const PREMONITION_DURATION_REDUCED_MS = 1300;
 const PREMONITION_DRIFT_MIN = 20; // 横へ漂う距離(px)。画面を横断させない
 const PREMONITION_DRIFT_MAX = 40;
 const PREMONITION_DRIFT_REDUCED_MAX = 5; // reduced-motion では 5px 以下
@@ -1072,6 +1072,11 @@ if (new URLSearchParams(window.location.search).get('debug') === '1') {
         const before = Math.max(connectedOthers + debugConnectedOffset, 0);
         debugConnectedOffset += delta;
         if (Math.max(connectedOthers + debugConnectedOffset, 0) > before) triggerPremonition();
+      },
+      // 予感音の「短い」「長い」を視覚演出なしで直接鳴らす（本番のクールダウン状態には触れない）。
+      testPremonitionSound: (kind: 'short' | 'B') => {
+        audioManager.unlock();
+        audioManager.playPremonitionNoise(kind);
       },
       // 疑似 watcher（送信済みの他者）の増減。人数表示にだけ効く（予感は出さない）。
       bumpWatcher: (delta: number) => {
