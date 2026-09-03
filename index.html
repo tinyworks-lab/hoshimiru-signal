@@ -36,6 +36,14 @@
         </div>
 
         <!--
+          今日(日本時間)ホシミル信号を送ったユニークUID数。上のリアルタイム人数(watching-slot)
+          とは意味が違うため、一段小さく控えめな文字でその直下に添える。取得前は「—件」。
+        -->
+        <p id="readout-daily" class="readout-line readout-daily">
+          今日確認されたホシミル信号　<span id="readout-daily-body" class="readout-daily-number">—</span>件
+        </p>
+
+        <!--
           水平線は常に1本のsignal-line pathのみ。d属性をJSで時間変化させることで、
           「線の上に波形を重ねる」のではなく「一本の線そのものが波打つ」ように見せる。
           通常時はd="M6,20 L214,20"の完全な直線。viewBoxと座標系は変更しない。

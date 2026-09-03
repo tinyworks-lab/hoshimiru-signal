@@ -12,6 +12,7 @@ import {
   update,
 } from 'firebase/database';
 import { auth, db } from './firebase';
+import { jstDateKey, nextJstMidnight } from './jst-date';
 
 // presenceに参加している間、この間隔で自分の接続のlastSeenをサーバー時刻に更新する。
 const HEARTBEAT_INTERVAL_MS = 30000;
@@ -36,6 +37,14 @@ export interface SignalCallbacks {
   onSignalReceived: () => void;
 }
 
+export interface DailySignalCallbacks {
+  /**
+   * 「今日(日本時間)ホシミル信号を送ったユニークUID数」が変わるたびに呼ばれる
+   * （日付が変わって集計対象日を切り替えたときも呼ばれる）。
+   */
+  onDailySignalCountChange: (count: number) => void;
+}
+
 export interface HoshimiruWatcher {
   /**
    * ページ接続時に一度だけ呼ぶ。自分の接続を presence へ sent:false（通りすがい）として登録する。
@@ -58,11 +67,13 @@ const SIGNAL_CLEANUP_DELAY_MS = 20000;
  * ページ読み込み時に呼ぶ。匿名認証を行い、
  * - presence（接続数と、そのうち信号を送った人数の把握に使う）
  * - signals（「本当にホシミル信号が送られた」という瞬間的なイベントだけに使う）
- * の両方の監視を開始する。この時点では自分はpresenceにもsignalsにも書き込まない。
+ * - dailySignals（「今日(日本時間)ホシミル信号を送ったユニークUID数」の把握に使う）
+ * の監視を開始する。この時点では自分はpresenceにもsignalsにもdailySignalsにも書き込まない。
  */
 export async function watchHoshimiruSignal(
   presenceCallbacks: PresenceCallbacks,
   signalCallbacks: SignalCallbacks,
+  dailySignalCallbacks: DailySignalCallbacks,
 ): Promise<HoshimiruWatcher> {
   const credential = await signInAnonymously(auth);
   const myUid = credential.user.uid;
@@ -139,6 +150,35 @@ export async function watchHoshimiruSignal(
     .catch((error) => {
       console.error(error);
     });
+
+  // --- dailySignals: 「今日(日本時間)ホシミル信号を送ったユニークUID数」を数える ---
+  // dailySignals/{YYYY-MM-DD(JST)}/{uid} = true という単純な集合として持つ。
+  // 送信のたびに自分のuidキーへtrueを書く「べき等な」set()だけで済ませ、
+  // 個数は子キー数（＝ユニークUID数）をそのまま使う。専用のカウンタを別途持たないため、
+  // 「読んでから+1して書き戻す」ような競合状態が原理的に発生しない
+  // （再送信・複数タブからの同時送信のいずれも、同じuidキーへの同じ値の上書きにしかならない）。
+  let dailySignalsUnsubscribe: (() => void) | undefined;
+
+  function subscribeDailySignals(): void {
+    if (dailySignalsUnsubscribe) dailySignalsUnsubscribe();
+    const dateKey = jstDateKey(Date.now());
+    dailySignalsUnsubscribe = onValue(ref(db, `dailySignals/${dateKey}`), (snapshot) => {
+      const raw = snapshot.val() as Record<string, unknown> | null;
+      dailySignalCallbacks.onDailySignalCountChange(raw ? Object.keys(raw).length : 0);
+    });
+  }
+
+  // 開いたまま日本時間の日付が変わったら、購読先を新しい日付のノードへ切り替える。
+  function scheduleDailySignalsRollover(): void {
+    const delay = Math.max(nextJstMidnight(Date.now()) - Date.now(), 0);
+    window.setTimeout(() => {
+      subscribeDailySignals();
+      scheduleDailySignalsRollover();
+    }, delay);
+  }
+
+  subscribeDailySignals();
+  scheduleDailySignalsRollover();
 
   let hasJoinedPresence = false;
   let myConnectionRef: ReturnType<typeof push> | null = null;
@@ -223,6 +263,12 @@ export async function watchHoshimiruSignal(
     window.setTimeout(() => {
       remove(signalRef);
     }, SIGNAL_CLEANUP_DELAY_MS);
+
+    // 「今日確認されたホシミル信号」用。同じuid・同じ日付キーへのtrue上書きになるだけなので、
+    // 初回送信・8分19秒後の再送信のどちらで呼ばれてもユニークUID数は増えない（べき等）。
+    set(ref(db, `dailySignals/${jstDateKey(Date.now())}/${myUid}`), true).catch((error) => {
+      console.error(error);
+    });
   }
 
   return { join, markSent, markUnsent, sendSignal };

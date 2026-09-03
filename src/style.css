@@ -178,6 +178,28 @@ body::after {
   opacity: 1;
 }
 
+/*
+  「今日確認されたホシミル信号 ○件」。presenceのリアルタイム人数(watching-slot)とは
+  意味が違うことが自然に伝わるよう、一段小さく・静かな文字でその直下に添える。
+  .stageのflex gap(2.25rem)をそのまま使うと離れすぎるため、上マージンを負にして寄せる。
+  常時表示（送信の有無に関わらず今日の実績として意味を持つため、hasEverSent等の
+  表示条件は持たない）。
+*/
+.readout-daily {
+  margin: -1.5rem 0 0;
+  font-size: 0.66rem;
+  line-height: 1.6;
+  letter-spacing: 0.06em;
+  color: #6d7899;
+  text-shadow: 0 1px 10px rgba(2, 4, 10, 0.7);
+}
+
+.readout-daily-number {
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  color: #8792b3;
+}
+
 /* 信号の水平線。初期状態から常時表示する（受信機の待機状態）。 */
 .signal-slot {
   height: 2.5rem;

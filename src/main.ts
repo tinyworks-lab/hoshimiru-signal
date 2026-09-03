@@ -12,6 +12,7 @@ const glowEl = document.getElementById('signal-glow') as unknown as SVGCircleEle
 const watchingLineEl = document.getElementById('readout-watching') as HTMLParagraphElement;
 const watchingMainEl = document.getElementById('watching-main') as HTMLSpanElement;
 const watchingSubEl = document.getElementById('watching-sub') as HTMLSpanElement;
+const dailyBodyEl = document.getElementById('readout-daily-body') as HTMLSpanElement;
 const receivedLineEl = document.getElementById('readout-received') as HTMLParagraphElement;
 const receivedBodyEl = document.getElementById('readout-received-body') as HTMLSpanElement;
 const particleEl = document.getElementById('launch-particle') as HTMLDivElement;
@@ -159,6 +160,13 @@ let connectedOthers = 0;
 let watchersOthers = 0;
 // 一度でも presence コールバックが来たか。来るまでは「—人」を出す。
 let hasPresenceData = false;
+// 今日(日本時間)ホシミル信号を送ったユニークUID数。取得前はnull（「—件」を出す）。
+let dailySignalCount: number | null = null;
+
+// 「今日確認されたホシミル信号 ○件」の描画。値が来るまでは「—件」のまま。
+function renderDailySignalCount(): void {
+  dailyBodyEl.textContent = dailySignalCount === null ? '—' : String(dailySignalCount);
+}
 // debug モードからのみ増減させる疑似オフセット（本番では常に 0）。
 let debugConnectedOffset = 0; // 通りすがり（予感・connected表示）
 let debugWatcherOffset = 0; // 疑似watcher（人数表示）
@@ -1084,6 +1092,12 @@ async function init(): Promise<void> {
           showReceivedMessage();
         },
       },
+      {
+        onDailySignalCountChange: (count) => {
+          dailySignalCount = count;
+          renderDailySignalCount();
+        },
+      },
     );
 
     // 全員がまず接続として presence に登録される（通りすがり = sent:false）。
@@ -1114,6 +1128,8 @@ renderReceivedSince();
 // restoreSignalStateが8分19秒以内の復元でhasEverSentをtrueにしていれば、
 // リロード後も「Xで知らせる」を最初から表示する。
 renderShareLink();
+// dailySignalCountはinit()内のonDailySignalCountChangeが来るまでnullのまま＝「—件」を表示。
+renderDailySignalCount();
 
 initAnalytics();
 void init();
