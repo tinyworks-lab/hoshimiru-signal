@@ -589,40 +589,6 @@ body::after {
 }
 
 /*
-  URLコピー結果の控えめな案内。ボタンの下に絶対配置することで、表示/非表示や
-  文言の長さが変わってもレイアウト（周囲の要素の位置）には一切影響しない。
-  数秒後にmain.ts側でopacityを戻してフェードアウトさせる。
-*/
-.share-x-notice {
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin: 0.5rem 0 0;
-  width: max-content;
-  max-width: 220px;
-  font-size: 0.62rem;
-  line-height: 1.55;
-  letter-spacing: 0.03em;
-  color: #8993b8;
-  text-shadow: 0 1px 10px rgba(2, 4, 10, 0.7);
-  white-space: pre-line;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.4s ease;
-}
-
-.share-x-notice.is-visible {
-  opacity: 1;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .share-x-notice {
-    transition-duration: 0.12s;
-  }
-}
-
-/*
   フッター。視覚的優先度を下げ、星空体験を邪魔しない。
   下部固定と safe-area 対応は維持する。
 */

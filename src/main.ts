@@ -28,7 +28,6 @@ const aboutModalBackdrop = document.getElementById('about-modal-backdrop') as HT
 const aboutModalClose = document.getElementById('about-modal-close') as HTMLButtonElement;
 const shareXSlot = document.getElementById('share-x-slot') as HTMLDivElement;
 const shareXButton = document.getElementById('share-x-button') as HTMLButtonElement;
-const shareXNotice = document.getElementById('share-x-notice') as HTMLParagraphElement;
 
 const audioManager = new AudioManager();
 // 信号送信後の受信待機中に画面がスリープしにくくなるようにする。対応判定・失敗時の
@@ -116,30 +115,25 @@ function clearReceivedTotal(): void {
 // --- 「Xで知らせる」導線 -----------------------------------------------------------
 // 初回の「信号ヲ送ル」実行後（hasEverSent）にだけ表示する、控えめなX共有導線。
 // 送受信・presence・音とは無関係の表示専用機能。
-// 投稿本文にはURLを含めない運用（投稿後の返信にURLを貼ってもらう）。
-// そのためURLは投稿本文には渡さず、クリップボードへコピーするだけにする。
+// 投稿本文にホシミル信号のURLを含める。クリップボードへのコピーは行わない。
 const SHARE_X_TEXT = '今、空を見ています。\n誰かも見ているでしょうか。\nホシミル信号を送りました。';
 const SHARE_X_HASHTAG = 'ホシミル信号';
-const SHARE_NOTICE_COPIED = 'リンクをコピーしました\n返信に貼ると、ここへ案内できます';
-const SHARE_NOTICE_COPY_FAILED = 'リンクをコピーできませんでした';
-const SHARE_NOTICE_HIDE_MS = 4000;
-let shareNoticeTimer: number | undefined;
 
-// 現在のページURL（クエリ・ハッシュは除く）にUTMパラメータを付与したものを共有URLにする。
+// 現在のページURL（クエリ・ハッシュは除く）に utm_source=x_share だけを付与したものを共有URLにする。
 // ドメイン・パスをハードコードせず window.location から組み立てるため、
 // GitHub Pagesのパス構成が変わっても正しいURLになる。
+// 本番例: https://tinyworks-lab.github.io/hoshimiru-signal/?utm_source=x_share
 function buildShareUrl(): string {
   const url = new URL(window.location.origin + window.location.pathname);
-  url.searchParams.set('utm_source', 'hoshimiru_share');
-  url.searchParams.set('utm_medium', 'social');
-  url.searchParams.set('utm_campaign', 'signal_share');
+  url.searchParams.set('utm_source', 'x_share');
   return url.toString();
 }
 
-// X Web Intentにはtext/hashtagsのみを渡す（urlは渡さない＝投稿本文にリンクを含めない）。
+// X Web Intentに text / url / hashtags を渡す（url を渡す＝投稿本文にホシミル信号のURLを含める）。
 function buildShareXIntentUrl(): string {
   const intent = new URL('https://x.com/intent/tweet');
   intent.searchParams.set('text', SHARE_X_TEXT);
+  intent.searchParams.set('url', buildShareUrl());
   intent.searchParams.set('hashtags', SHARE_X_HASHTAG);
   return intent.toString();
 }
@@ -149,17 +143,6 @@ function buildShareXIntentUrl(): string {
 // hasEverSentは既にtrueのままなので、新たに何かが起きることはない（冪等）。
 function renderShareLink(): void {
   shareXSlot.classList.toggle('is-visible', hasEverSent);
-}
-
-// URLコピーの結果を、ボタン付近に小さく数秒だけ表示する（絶対配置のためレイアウトは動かない）。
-function showShareNotice(message: string): void {
-  shareXNotice.textContent = message;
-  shareXNotice.classList.add('is-visible');
-  if (shareNoticeTimer !== undefined) window.clearTimeout(shareNoticeTimer);
-  shareNoticeTimer = window.setTimeout(() => {
-    shareNoticeTimer = undefined;
-    shareXNotice.classList.remove('is-visible');
-  }, SHARE_NOTICE_HIDE_MS);
 }
 
 // presence: いま接続しているだけの人も含む「自分以外」のuid数（「予感」に使う）。
@@ -1060,22 +1043,9 @@ muteButton.addEventListener('click', () => {
 
 shareXButton.addEventListener('click', () => {
   trackEvent('share_x_clicked', { source: 'signal_sent' });
-  // ポップアップブロック対策のため、クリップボード書き込み(非同期)より先に必ず同期的に開く。
-  window.open(buildShareXIntentUrl(), '_blank', 'noopener,noreferrer');
-
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard
-      .writeText(buildShareUrl())
-      .then(() => {
-        trackEvent('share_url_copied', { source: 'x_share' });
-        showShareNotice(SHARE_NOTICE_COPIED);
-      })
-      .catch(() => {
-        showShareNotice(SHARE_NOTICE_COPY_FAILED);
-      });
-  } else {
-    showShareNotice(SHARE_NOTICE_COPY_FAILED);
-  }
+  // 新しい空タブを残さないよう、window.open(..., '_blank') は使わず、
+  // 現在のタブから X Web Intent へ遷移する（スマホではXアプリが開く）。
+  window.location.assign(buildShareXIntentUrl());
 });
 
 function openPrivacyModal(): void {
