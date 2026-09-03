@@ -4,6 +4,7 @@ import { AudioManager } from './audio';
 import type { HoshimiruWatcher, PresenceSnapshot } from './presence';
 import { watchHoshimiruSignal } from './presence';
 import { isSameSessionWindow, nextSessionBoundary } from './session-window';
+import { createWakeLockController } from './wake-lock';
 
 const appEl = document.getElementById('app') as HTMLDivElement;
 const button = document.getElementById('signal-button') as HTMLButtonElement;
@@ -30,6 +31,9 @@ const shareXButton = document.getElementById('share-x-button') as HTMLButtonElem
 const shareXNotice = document.getElementById('share-x-notice') as HTMLParagraphElement;
 
 const audioManager = new AudioManager();
+// 信号送信後の受信待機中に画面がスリープしにくくなるようにする。対応判定・失敗時の
+// フォールバックはモジュール内で完結しており、main.ts側はenable()/disable()を呼ぶだけでよい。
+const wakeLockController = createWakeLockController();
 const LAUNCH_DURATION_MS = 1000;
 // 送信演出が終わってから「空へ信号ヲ送信中」を維持し、その後「誰カノ信号ヲ待ッテイマス」へ切り替えるまでの時間。
 const SENDING_HOLD_MS = 1500;
@@ -970,6 +974,8 @@ function resetToFirstSignalState(): void {
   watcher?.markUnsent();
   resetReceivedSignals();
   renderWatchingCount();
+  // 受信待機状態ではなくなったのでWake Lockも不要になる（保持していれば解放する）。
+  wakeLockController.disable();
 }
 
 // 現在時刻から次のセッション境界(04/10/16/22時)までを計算してsetTimeoutする。
@@ -1003,6 +1009,9 @@ button.addEventListener('click', () => {
   isCountingSinceSend = true;
   resetReceivedSignals();
   renderWatchingCount(); // 自分が watcher に加わったので人数表示を即時更新
+  // 受信待機状態になったので画面のスリープを防ぐ。初回送信・再送信とも同じハンドラなので、
+  // 既に保持できていれば何もせず、解除されていれば静かに再取得を試みる。
+  wakeLockController.enable();
 
   // 1. AudioContextをユーザー操作で有効化
   audioManager.unlock();
@@ -1175,6 +1184,7 @@ if (new URLSearchParams(window.location.search).get('debug') === '1') {
         resetReceivedSignals();
         renderWatchingCount();
         renderShareLink();
+        wakeLockController.enable();
       },
       // 「通りすがい」（接続だけの他者）の疑似増減。増えたら本番と同じ「予感」を出す。
       // Firebase は書き換えず、connected 表示と予感の確認用オフセットとして扱う。
@@ -1211,9 +1221,11 @@ if (new URLSearchParams(window.location.search).get('debug') === '1') {
         renderReceivedSince();
         renderWatchingCount();
         renderShareLink();
+        wakeLockController.disable();
       },
       getState: () => {
         const growth = lineGrowthFactor(receivedSignalCount);
+        const wakeLockState = wakeLockController.getDebugState();
         return {
           receivedSignalCount,
           receivedTotalOnPage,
@@ -1227,6 +1239,9 @@ if (new URLSearchParams(window.location.search).get('debug') === '1') {
             : null,
           watchers: watchersOthersEffective() + (isCountingSinceSend ? 1 : 0),
           selfSent: isCountingSinceSend,
+          wakeLockSupported: wakeLockState.supported,
+          wakeLockActive: wakeLockState.active,
+          wakeLockLastFailureReason: wakeLockState.lastFailureReason,
         };
       },
     });

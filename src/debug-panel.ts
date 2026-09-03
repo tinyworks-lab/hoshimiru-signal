@@ -28,6 +28,9 @@ export interface DebugPanelHandlers {
     connected: number | null;
     watchers: number;
     selfSent: boolean;
+    wakeLockSupported: boolean;
+    wakeLockActive: boolean;
+    wakeLockLastFailureReason: string | null;
   };
 }
 
@@ -103,11 +106,17 @@ export function mountDebugPanel(handlers: DebugPanelHandlers): void {
   function refreshReadout(): void {
     const state = handlers.getState();
     const connected = state.connected === null ? '—' : String(state.connected);
+    const wakeLock = state.wakeLockSupported
+      ? state.wakeLockActive
+        ? 'active'
+        : 'inactive'
+      : 'unsupported';
+    const wakeLockFailure = state.wakeLockLastFailureReason ? `(${state.wakeLockLastFailureReason})` : '';
     readout.textContent =
       `connected: ${connected}　watchers: ${state.watchers}　selfSent: ${state.selfSent ? 'yes' : 'no'}` +
       `　total: ${state.receivedTotalOnPage}　sinceSend: ${state.receivedSignalCount}　growth: ${state.lineGrowthFactor.toFixed(3)}` +
       `　steady: ${state.steadyStrength.toFixed(3)}　env: ${state.envFrequency.toFixed(2)}` +
-      `　span: ${state.spanScale.toFixed(2)}`;
+      `　span: ${state.spanScale.toFixed(2)}　wakeLock: ${wakeLock}${wakeLockFailure}`;
   }
 
   refreshReadout();
