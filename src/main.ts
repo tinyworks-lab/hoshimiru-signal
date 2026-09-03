@@ -116,8 +116,10 @@ function clearReceivedTotal(): void {
 // 初回の「信号ヲ送ル」実行後（hasEverSent）にだけ表示する、控えめなX共有導線。
 // 送受信・presence・音とは無関係の表示専用機能。
 // 投稿本文にホシミル信号のURLを含める。クリップボードへのコピーは行わない。
-const SHARE_X_TEXT = '今、空を見ています。\n誰かも見ているでしょうか。\nホシミル信号を送りました。';
-const SHARE_X_HASHTAG = 'ホシミル信号';
+// URL・ハッシュタグは Web Intent の url / hashtags パラメータではなく text 内に改行付きで含め、
+// 投稿画面で「本文 → 空行 → URL → 空行 → #ホシミル信号」の改行配置がそのまま再現されるようにする。
+const SHARE_X_BODY = '今、空を見ています。\n誰かも見ているでしょうか。\nホシミル信号を送りました。';
+const SHARE_X_HASHTAG_LINE = '#ホシミル信号';
 
 // 現在のページURL（クエリ・ハッシュは除く）に utm_source=x_share だけを付与したものを共有URLにする。
 // ドメイン・パスをハードコードせず window.location から組み立てるため、
@@ -129,12 +131,15 @@ function buildShareUrl(): string {
   return url.toString();
 }
 
-// X Web Intentに text / url / hashtags を渡す（url を渡す＝投稿本文にホシミル信号のURLを含める）。
+// 投稿本文。本文のあとに空行1行を挟んでURL、さらに空行1行を挟んで #ホシミル信号 を置く。
+function buildShareXText(): string {
+  return `${SHARE_X_BODY}\n\n${buildShareUrl()}\n\n${SHARE_X_HASHTAG_LINE}`;
+}
+
+// X Web Intentには text だけを渡す（url / hashtags パラメータは使わない）。
 function buildShareXIntentUrl(): string {
   const intent = new URL('https://x.com/intent/tweet');
-  intent.searchParams.set('text', SHARE_X_TEXT);
-  intent.searchParams.set('url', buildShareUrl());
-  intent.searchParams.set('hashtags', SHARE_X_HASHTAG);
+  intent.searchParams.set('text', buildShareXText());
   return intent.toString();
 }
 
