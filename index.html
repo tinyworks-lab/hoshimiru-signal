@@ -73,6 +73,22 @@
         </div>
 
         <!--
+          初回の「信号ヲ送ル」実行後（hasEverSent）にだけ、控えめな「Xで知らせる」導線を表示する。
+          「誰カノ信号ヲ待ッテイマス」の直下・受信累計の上に置くことで、スクロールなしの
+          ファーストビュー内に収める。#readout-received と同じく送信前から高さを確保し
+          opacityだけで出し入れするため、表示/非表示でレイアウトは動かない。
+          再送信のたびに新たに増えたり作り直したりはしない。
+        -->
+        <div id="share-x-slot" class="share-x-slot">
+          <button id="share-x-button" type="button" class="share-x-button">Xで知らせる</button>
+          <!--
+            クリップボードへのURLコピー結果（成功/失敗）を数秒だけ表示する控えめな案内。
+            絶対配置のため表示/非表示でレイアウトは動かない。文言はmain.tsが設定する。
+          -->
+          <p id="share-x-notice" class="share-x-notice" role="status" aria-live="polite"></p>
+        </div>
+
+        <!--
           このページを開いてからの受信累計（メモリのみ。再送・6時間境界でも0に戻さない）。
           送信前は opacity:0 で不可視だが高さは常に確保してレイアウトを動かさない。
           数字の変化はいずれも opacity のフェードのみで、要素の出し入れはしない。

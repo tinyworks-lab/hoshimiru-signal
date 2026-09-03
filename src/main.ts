@@ -20,6 +20,9 @@ const privacyLink = document.getElementById('privacy-link') as HTMLButtonElement
 const privacyModal = document.getElementById('privacy-modal') as HTMLDivElement;
 const privacyModalBackdrop = document.getElementById('privacy-modal-backdrop') as HTMLDivElement;
 const privacyModalClose = document.getElementById('privacy-modal-close') as HTMLButtonElement;
+const shareXSlot = document.getElementById('share-x-slot') as HTMLDivElement;
+const shareXButton = document.getElementById('share-x-button') as HTMLButtonElement;
+const shareXNotice = document.getElementById('share-x-notice') as HTMLParagraphElement;
 
 const audioManager = new AudioManager();
 const LAUNCH_DURATION_MS = 1000;
@@ -99,6 +102,55 @@ function clearReceivedTotal(): void {
   } catch {
     // 消せない環境でも、読み出し側で無効値は 0 として扱う。
   }
+}
+
+// --- 「Xで知らせる」導線 -----------------------------------------------------------
+// 初回の「信号ヲ送ル」実行後（hasEverSent）にだけ表示する、控えめなX共有導線。
+// 送受信・presence・音とは無関係の表示専用機能。
+// 投稿本文にはURLを含めない運用（投稿後の返信にURLを貼ってもらう）。
+// そのためURLは投稿本文には渡さず、クリップボードへコピーするだけにする。
+const SHARE_X_TEXT = '今、空を見ています。\n誰かも見ているでしょうか。\nホシミル信号を送りました。';
+const SHARE_X_HASHTAG = 'ホシミル信号';
+const SHARE_NOTICE_COPIED = 'リンクをコピーしました\n返信に貼ると、ここへ案内できます';
+const SHARE_NOTICE_COPY_FAILED = 'リンクをコピーできませんでした';
+const SHARE_NOTICE_HIDE_MS = 4000;
+let shareNoticeTimer: number | undefined;
+
+// 現在のページURL（クエリ・ハッシュは除く）にUTMパラメータを付与したものを共有URLにする。
+// ドメイン・パスをハードコードせず window.location から組み立てるため、
+// GitHub Pagesのパス構成が変わっても正しいURLになる。
+function buildShareUrl(): string {
+  const url = new URL(window.location.origin + window.location.pathname);
+  url.searchParams.set('utm_source', 'hoshimiru_share');
+  url.searchParams.set('utm_medium', 'social');
+  url.searchParams.set('utm_campaign', 'signal_share');
+  return url.toString();
+}
+
+// X Web Intentにはtext/hashtagsのみを渡す（urlは渡さない＝投稿本文にリンクを含めない）。
+function buildShareXIntentUrl(): string {
+  const intent = new URL('https://x.com/intent/tweet');
+  intent.searchParams.set('text', SHARE_X_TEXT);
+  intent.searchParams.set('hashtags', SHARE_X_HASHTAG);
+  return intent.toString();
+}
+
+// hasEverSentのときだけ静かに表示する。#readout-received と同様、送信前から高さは確保済みで
+// opacityだけを切り替えるため、表示/非表示でレイアウトは動かない。再送信のたびに呼ばれても
+// hasEverSentは既にtrueのままなので、新たに何かが起きることはない（冪等）。
+function renderShareLink(): void {
+  shareXSlot.classList.toggle('is-visible', hasEverSent);
+}
+
+// URLコピーの結果を、ボタン付近に小さく数秒だけ表示する（絶対配置のためレイアウトは動かない）。
+function showShareNotice(message: string): void {
+  shareXNotice.textContent = message;
+  shareXNotice.classList.add('is-visible');
+  if (shareNoticeTimer !== undefined) window.clearTimeout(shareNoticeTimer);
+  shareNoticeTimer = window.setTimeout(() => {
+    shareNoticeTimer = undefined;
+    shareXNotice.classList.remove('is-visible');
+  }, SHARE_NOTICE_HIDE_MS);
 }
 
 // presence: いま接続しているだけの人も含む「自分以外」のuid数（「予感」に使う）。
@@ -932,6 +984,7 @@ button.addEventListener('click', () => {
 
   const isFirstSend = !hasEverSent;
   hasEverSent = true;
+  renderShareLink(); // 初回送信のときだけ「Xで知らせる」が現れる（再送信では既にtrueなので変化なし）
 
   // 自分が送った瞬間に「あなたが受信したホシミル信号」を 0 から数え直す（＝自分が watcher になる）。
   // 再送でも毎回ここでリセットされ、線の成長も 0 からやり直す。
@@ -982,6 +1035,26 @@ muteButton.addEventListener('click', () => {
   muteButton.textContent = muted ? '音 OFF' : '音 ON';
   muteButton.setAttribute('aria-pressed', String(muted));
   trackEvent('mute_changed', { muted });
+});
+
+shareXButton.addEventListener('click', () => {
+  trackEvent('share_x_clicked', { source: 'signal_sent' });
+  // ポップアップブロック対策のため、クリップボード書き込み(非同期)より先に必ず同期的に開く。
+  window.open(buildShareXIntentUrl(), '_blank', 'noopener,noreferrer');
+
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard
+      .writeText(buildShareUrl())
+      .then(() => {
+        trackEvent('share_url_copied', { source: 'x_share' });
+        showShareNotice(SHARE_NOTICE_COPIED);
+      })
+      .catch(() => {
+        showShareNotice(SHARE_NOTICE_COPY_FAILED);
+      });
+  } else {
+    showShareNotice(SHARE_NOTICE_COPY_FAILED);
+  }
 });
 
 function openPrivacyModal(): void {
@@ -1038,6 +1111,9 @@ restoreSignalState();
 // 未送信かつ累計0のときは「この空で受信したホシミル信号」行は出さない）。
 renderWatchingCount();
 renderReceivedSince();
+// restoreSignalStateが8分19秒以内の復元でhasEverSentをtrueにしていれば、
+// リロード後も「Xで知らせる」を最初から表示する。
+renderShareLink();
 
 initAnalytics();
 void init();
@@ -1064,6 +1140,7 @@ if (new URLSearchParams(window.location.search).get('debug') === '1') {
         hasEverSent = true;
         resetReceivedSignals();
         renderWatchingCount();
+        renderShareLink();
       },
       // 「通りすがい」（接続だけの他者）の疑似増減。増えたら本番と同じ「予感」を出す。
       // Firebase は書き換えず、connected 表示と予感の確認用オフセットとして扱う。
@@ -1099,6 +1176,7 @@ if (new URLSearchParams(window.location.search).get('debug') === '1') {
         resetReceivedSignals();
         renderReceivedSince();
         renderWatchingCount();
+        renderShareLink();
       },
       getState: () => {
         const growth = lineGrowthFactor(receivedSignalCount);
