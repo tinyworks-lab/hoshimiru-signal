@@ -509,6 +509,32 @@ body::after {
 }
 
 /*
+  「ホシミル信号とは」への入口。ボタン風にはせず下線つきのテキストリンクのまま、
+  3行のコンセプト文(.about-main)より一段小さく、ただしプライバシーリンクよりは
+  明確に見つけやすい明るさにする。Xで知らせる・信号ヲ送ルよりは大幅に控えめ。
+*/
+.about-link {
+  display: inline-block;
+  margin: 0.9rem 0 0;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  color: #8a97bf;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  text-shadow: 0 1px 12px rgba(2, 4, 10, 0.7);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.about-link:active {
+  color: #a7b3d4;
+}
+
+/*
   信号を送ったあとだけ現れる、控えめな「Xで知らせる」導線。星空体験のメインではないため
   action-button より明確に静かな見た目にする。#readout-received と同じく送信前から高さを
   確保し、opacityだけで出し入れする（表示/非表示でレイアウトは動かない）。

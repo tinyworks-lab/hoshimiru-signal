@@ -21,6 +21,10 @@ const privacyLink = document.getElementById('privacy-link') as HTMLButtonElement
 const privacyModal = document.getElementById('privacy-modal') as HTMLDivElement;
 const privacyModalBackdrop = document.getElementById('privacy-modal-backdrop') as HTMLDivElement;
 const privacyModalClose = document.getElementById('privacy-modal-close') as HTMLButtonElement;
+const aboutLink = document.getElementById('about-link') as HTMLButtonElement;
+const aboutModal = document.getElementById('about-modal') as HTMLDivElement;
+const aboutModalBackdrop = document.getElementById('about-modal-backdrop') as HTMLDivElement;
+const aboutModalClose = document.getElementById('about-modal-close') as HTMLButtonElement;
 const shareXSlot = document.getElementById('share-x-slot') as HTMLDivElement;
 const shareXButton = document.getElementById('share-x-button') as HTMLButtonElement;
 const shareXNotice = document.getElementById('share-x-notice') as HTMLParagraphElement;
@@ -1076,6 +1080,20 @@ function closePrivacyModal(): void {
 privacyLink.addEventListener('click', openPrivacyModal);
 privacyModalClose.addEventListener('click', closePrivacyModal);
 privacyModalBackdrop.addEventListener('click', closePrivacyModal);
+
+// 「ホシミル信号とは」の説明。プライバシーモーダルと同じ開閉の仕組み（初期表示ではhiddenのまま、
+// footerのリンクを押すまで開かない＝初回に強制表示はしない）。
+function openAboutModal(): void {
+  aboutModal.hidden = false;
+}
+
+function closeAboutModal(): void {
+  aboutModal.hidden = true;
+}
+
+aboutLink.addEventListener('click', openAboutModal);
+aboutModalClose.addEventListener('click', closeAboutModal);
+aboutModalBackdrop.addEventListener('click', closeAboutModal);
 
 async function init(): Promise<void> {
   try {

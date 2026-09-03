@@ -113,6 +113,11 @@
           自分が空を見上げていることを知らせる。<br />
           ただ、それだけの場所。
         </p>
+        <!--
+          「ホシミル信号とは」モーダルへの入口。プライバシーリンクよりは見つけやすく、
+          かつボタン風にはせずテキストリンクのまま、3行のコンセプト文のすぐ下に置く。
+        -->
+        <button id="about-link" type="button" class="about-link">ホシミル信号とは</button>
       </div>
 
       <div id="footer-note" class="footer-note">
@@ -150,6 +155,45 @@
         <p class="privacy-modal-text">氏名、メールアドレス、位置情報などを入力する必要はありません。</p>
         <p class="privacy-modal-text">取得した情報は、サービスの運営・改善のために利用します。</p>
         <button id="privacy-modal-close" type="button" class="privacy-modal-close">閉じる</button>
+      </div>
+    </div>
+
+    <!--
+      「ホシミル信号とは」の説明。プライバシーモーダルと全く同じ見た目・開閉の仕組みを
+      流用する（.privacy-modal系クラスをそのまま使う）ことで、静かな世界観を保ちつつ
+      最小限の実装にしている。初期表示では常にhiddenで、footerのリンクを押すまで開かない。
+    -->
+    <div id="about-modal" class="privacy-modal" hidden>
+      <div id="about-modal-backdrop" class="privacy-modal-backdrop"></div>
+      <div class="privacy-modal-card" role="dialog" aria-modal="true" aria-labelledby="about-modal-title">
+        <h2 id="about-modal-title" class="privacy-modal-title">ホシミル信号とは</h2>
+        <p class="privacy-modal-text">
+          空を見ていることだけを、<br />
+          誰かに知らせる場所です。
+        </p>
+        <p class="privacy-modal-text">
+          星がきれいな夜。<br />
+          流星群を待っているとき。<br />
+          帰り道にふと空を見上げたとき。<br />
+          ひとりで空を見ているとき。
+        </p>
+        <p class="privacy-modal-text">
+          「信号ヲ送ル」を押すと、<br />
+          あなたも信号を受信する状態になります。
+        </p>
+        <p class="privacy-modal-text">
+          そのあと、別の誰かが空を見て信号を送ると、<br />
+          あなたのところにも「ポーン」と信号が届きます。
+        </p>
+        <p class="privacy-modal-text">
+          「ザッ」「ザザーーー」という音は、<br />
+          誰かがホシミル信号を開いた気配です。
+        </p>
+        <p class="privacy-modal-text">
+          まだ信号を送ったとは限りません。<br />
+          もしかすると、その人もこれから空を見上げるかもしれません。
+        </p>
+        <button id="about-modal-close" type="button" class="privacy-modal-close">閉じる</button>
       </div>
     </div>
 
